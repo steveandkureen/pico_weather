@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1024, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Weather</title>
+<style>
+html,body{margin:0;padding:0;background:#0F1418;overflow:hidden;height:100%}
+#wx-root{position:absolute;left:0;top:0;width:1024px;height:768px;-webkit-transform-origin:0 0;transform-origin:0 0;
+  box-sizing:border-box;padding:20px;background:#0F1418;color:#F2F4F5;
+  font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-variant-numeric:tabular-nums;display:flex;overflow:hidden}
+#wx-root>*+*{margin-left:16px}
+.colm{display:flex;flex-direction:column;min-width:0}
+.colm>*+*{margin-top:10px}
+.card{background:#182027;border-radius:14px;box-sizing:border-box;display:flex;flex-direction:column}
+.fcard{background:#1A2331}
+.lbl{margin:0;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#9AA7B0;font-weight:600}
+.sub{color:#9AA7B0}
+.i-sun{stroke:#F2C66D}.i-cloud{stroke:#C9D3DA}.i-rain{stroke:#6CB4EE}
+.hi{color:#F2A65A}.lo{color:#6CB4EE}
+.kv{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0;border-bottom:1px solid #2A3640}
+.kv:last-child{border-bottom:0}
+.v30{font-size:30px;font-weight:300}
+.list{flex:1 1 0;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-right:-12px;padding-right:12px}
+.list>div{height:76px;display:flex;align-items:center;border-top:1px solid #2C3848}
+.list>div.first{border-top:0}
+.list>div>*+*{margin-left:12px}
+</style>
+</head>
+<body>
+<div id="wx-root">
+
+  <div class="colm" style="flex:1.6 1 0">
+    <section class="card" style="height:300px;padding:20px 24px;border-top:3px solid #7BD39A">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <h2 class="lbl">Outside</h2>
+        <span class="sub" style="font-size:14px" data-f="updated">—</span>
+      </div>
+      <div style="flex:1 1 auto;display:flex;align-items:center">
+        <div style="flex:0 0 auto;font-size:136px;font-weight:200;line-height:1;letter-spacing:-.04em" data-f="out_t">—</div>
+        <div style="flex:1 1 0;display:flex;flex-direction:column;border-left:1px solid #2A3640;padding-left:24px;margin-left:24px">
+          <div class="kv"><span class="lbl">Humidity</span><span class="v30"><span data-f="out_h">—</span><span class="sub" style="font-size:17px">%</span></span></div>
+          <div class="kv"><span class="lbl" data-f="p_label">Pressure</span><span class="v30"><span data-f="out_p">—</span><span class="sub" style="font-size:15px"> <span data-f="u_p"></span></span></span></div>
+          <div class="kv"><span class="lbl">Inside</span><span class="v30"><span data-f="in_t">—</span> <span class="sub" style="font-size:17px"><span data-f="in_h">—</span>%</span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <div style="height:210px;display:flex">
+      <section class="card" style="flex:1 1 0;padding:18px 20px">
+        <h2 class="lbl">Wind</h2>
+        <div style="flex:1 1 auto;display:flex;align-items:center;margin-top:8px">
+          <div style="position:relative;width:140px;height:140px;flex:0 0 140px">
+            <svg width="140" height="140" viewBox="0 0 200 200" role="img" aria-label="Wind direction">
+              <circle cx="100" cy="100" r="84" fill="none" stroke="#2F3D48" stroke-width="2"/>
+              <circle cx="100" cy="100" r="84" fill="none" stroke="#3B4A55" stroke-width="8" stroke-dasharray="1 10.97"/>
+              <text x="100" y="12" text-anchor="middle" dominant-baseline="middle" fill="#9AA7B0" font-size="16" font-weight="700">N</text>
+              <text x="191" y="101" text-anchor="middle" dominant-baseline="middle" fill="#9AA7B0" font-size="16" font-weight="700">E</text>
+              <text x="100" y="190" text-anchor="middle" dominant-baseline="middle" fill="#9AA7B0" font-size="16" font-weight="700">S</text>
+              <text x="9" y="101" text-anchor="middle" dominant-baseline="middle" fill="#9AA7B0" font-size="16" font-weight="700">W</text>
+              <g data-rot="dir" data-c="100 100"><polygon points="100,48 86,20 114,20" fill="#F2A65A"/></g>
+            </svg>
+            <div style="position:absolute;left:0;top:0;width:140px;height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+              <span style="font-size:40px;font-weight:300;line-height:1" data-f="wind">—</span>
+              <span class="sub" style="font-size:13px;margin-top:2px" data-f="u_w"></span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;margin-left:14px">
+            <span class="lbl">Gusts</span>
+            <span style="font-size:26px;font-weight:300"><span data-f="gust">—</span> <span class="sub" style="font-size:15px" data-f="u_w"></span></span>
+            <span class="lbl" style="margin-top:14px">From</span>
+            <span style="font-size:26px;font-weight:300"><span data-f="dir_name">—</span> <span class="sub" style="font-size:15px" data-f="dir_deg"></span></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="flex:1 1 0;padding:18px 20px;justify-content:space-between;margin-left:14px">
+        <h2 class="lbl">Rain</h2>
+        <div style="display:flex;flex-direction:column">
+          <div class="kv" style="padding:8px 0"><span class="sub" style="font-size:16px">Today</span><span class="v30"><span data-f="rain_today">—</span><span class="sub" style="font-size:15px"> <span data-f="u_r"></span></span></span></div>
+          <div class="kv" style="padding:8px 0"><span class="sub" style="font-size:16px">This month</span><span class="v30"><span data-f="rain_month">—</span><span class="sub" style="font-size:15px"> <span data-f="u_r"></span></span></span></div>
+          <div class="kv" style="padding:8px 0 0"><span class="sub" style="font-size:16px">This year</span><span class="v30"><span data-f="rain_year">—</span><span class="sub" style="font-size:15px"> <span data-f="u_r"></span></span></span></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="flex:1 1 auto;padding:18px 24px;justify-content:space-between">
+      <h2 class="lbl">Today’s actual high &amp; low</h2>
+      <div style="display:flex">
+        <div style="flex:1 1 0;display:flex;align-items:baseline">
+          <span class="hi" style="font-size:16px;font-weight:700">High</span>
+          <span class="hi" style="font-size:54px;font-weight:300;line-height:1;margin-left:14px" data-f="hi">—</span>
+        </div>
+        <div style="flex:1 1 0;display:flex;align-items:baseline;border-left:1px solid #2A3640;padding-left:24px">
+          <span class="lo" style="font-size:16px;font-weight:700">Low</span>
+          <span class="lo" style="font-size:54px;font-weight:300;line-height:1;margin-left:14px" data-f="lo">—</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="colm" style="flex:1 1 0">
+    <section class="card fcard" style="height:220px;padding:18px 22px;justify-content:space-between;border-top:3px solid #8EB8F0">
+      <h2 class="lbl">Today <span class="sub" style="text-transform:none;letter-spacing:0;font-weight:400" data-f="fc_age"></span></h2>
+      <div style="display:flex;align-items:center">
+        <span data-icon="now" style="width:60px;height:60px"></span>
+        <span style="font-size:30px;font-weight:300;margin-left:14px" data-f="cond">—</span>
+      </div>
+      <div style="display:flex;border-top:1px solid #2C3848;padding-top:12px">
+        <div style="flex:1 1 0;display:flex;flex-direction:column">
+          <span class="lbl">Pred. high</span>
+          <span class="hi" style="font-size:32px;font-weight:300" data-f="fc_hi">—</span>
+        </div>
+        <div style="flex:1 1 0;display:flex;flex-direction:column">
+          <span class="lbl">Pred. low</span>
+          <span class="lo" style="font-size:32px;font-weight:300" data-f="fc_lo">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card fcard" style="flex:1 1 auto;padding:18px 22px 6px">
+      <h2 class="lbl" style="margin-bottom:4px">Next 10 days</h2>
+      <div class="list" data-list="fc" data-n="10" data-skip="1">
+        <div>
+          <span style="width:52px;display:flex;flex-direction:column;line-height:1.15"><span style="font-size:18px;font-weight:600" data-k="name"></span><span class="sub" style="font-size:13px" data-k="date"></span></span>
+          <span data-icon="day" style="width:36px;height:36px"></span>
+          <span class="sub" style="flex:1 1 auto;font-size:15px" data-k="cond"></span>
+          <span style="font-size:22px;font-weight:300"><span class="hi" data-k="hi"></span><span style="color:#5C6B76"> / </span><span class="lo" data-k="lo"></span></span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+</div>
+<script>window.WX_LAYOUT = 'D';</script>
+<script src="/app.js"></script>
+</body>
+</html>

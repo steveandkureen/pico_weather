@@ -20,6 +20,7 @@ add_executable(wx_tests
   test_radio.cpp
   test_net.cpp
   test_station.cpp
+  test_config.cpp
 )
 target_link_libraries(wx_tests PRIVATE wx_common)
 target_compile_options(wx_tests PRIVATE -Wall -Wextra)

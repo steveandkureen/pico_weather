@@ -54,3 +54,4 @@ void run_radio_tests();
 void run_net_tests();
 void run_station_tests();
 void run_health_tests();
+void run_config_tests();

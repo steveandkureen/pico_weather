@@ -1,6 +1,7 @@
 # Code shared by both firmwares and the host tests. Plain C++, no Pico SDK.
 add_library(wx_common STATIC
   ${CMAKE_CURRENT_LIST_DIR}/src/bme280.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/src/config_form.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/crc32.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/e220.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/flash_store.cpp

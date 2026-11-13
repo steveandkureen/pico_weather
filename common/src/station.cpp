@@ -433,6 +433,8 @@ bool Station::write_json(char* buf, size_t cap, uint32_t mono_ms, uint64_t mono_
     w.begin_object();
     w.key("age_s").value(int64_t{(mono_ms - fc_ms_) / 1000});
     w.key("code").value(int64_t{fc_.current_code});
+    w.key("tz").value(fc_.timezone);         // for "fill from forecast" on /config
+    w.key("elev_m").value(int64_t{fc_.elevation_m});
     w.key("days").begin_array();
     char ds[12];
     for (int i = 0; i < fc_.ndays; ++i) {

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1024, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Weather</title>
+<style>
+html,body{margin:0;padding:0;background:#F1E9DC;overflow:hidden;height:100%}
+#wx-root{position:absolute;left:0;top:0;width:1024px;height:768px;-webkit-transform-origin:0 0;transform-origin:0 0;
+  box-sizing:border-box;padding:28px 36px;background:#F1E9DC;color:#2B211A;
+  font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-variant-numeric:tabular-nums;
+  display:flex;flex-direction:column;overflow:hidden}
+#wx-root>*+*{margin-top:22px}
+.l{margin:0;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#6E5E50;font-weight:700}
+.s{color:#6E5E50}
+.i-sun{stroke:#B4532A}.i-cloud{stroke:#6E5E50}.i-rain{stroke:#2F5D80}
+.hi{color:#A8481F}.lo{color:#2F5D80}
+.strip{height:128px;display:flex;border-top:2px solid #D8C9B2;border-bottom:2px solid #D8C9B2}
+.strip>div{display:flex;flex-direction:column;justify-content:center}
+.strip>div+div{border-left:2px solid #D8C9B2;padding-left:20px}
+.pair{display:flex}
+.pair>*+*{margin-left:24px}
+.pair>div{display:flex;flex-direction:column}
+.big{font-size:32px;font-weight:300}
+.fc{flex:1 1 auto;display:flex}
+.fc>div{flex:1 1 0;display:flex;align-items:center;padding:0 14px;border-left:2px solid #D8C9B2}
+.fc>div.first{border-left:0}
+.vt{width:10px;height:80px;border-radius:5px;background:#E3D6C2;position:relative;margin:4px 0}
+.vt>span{position:absolute;left:0;width:10px;border-radius:5px;background:#D49A72}
+.range{position:relative;height:56px}
+.range .track{position:absolute;left:0;right:0;top:22px;height:12px;border-radius:6px;background:#E3D6C2}
+.range .r-actual{position:absolute;top:22px;height:12px;border-radius:6px;background:#D49A72}
+.range .r-fclo,.range .r-fchi{position:absolute;top:12px;width:2px;height:32px;margin-left:-1px;background:#2B211A}
+.range .r-now{position:absolute;top:18px;width:14px;height:14px;margin-left:-10px;border-radius:50%;background:#2B211A;border:3px solid #fff}
+</style>
+</head>
+<body>
+<div id="wx-root">
+
+  <div style="height:330px;display:flex;align-items:stretch">
+    <div style="flex:0 0 auto;display:flex;flex-direction:column;justify-content:space-between">
+      <div style="display:flex;align-items:center">
+        <span data-icon="now" style="width:44px;height:44px"></span>
+        <span style="font-size:24px;margin-left:12px" data-f="cond">—</span>
+        <span class="s" style="font-size:15px;margin-left:20px" data-f="updated">—</span>
+      </div>
+      <div style="font-size:210px;font-weight:200;line-height:.9;letter-spacing:-.05em;margin-left:-10px" data-f="out_t">—</div>
+      <div style="display:flex;align-items:baseline">
+        <span class="l">Inside</span>
+        <span style="font-size:28px;font-weight:300;margin-left:10px" data-f="in_t">—</span>
+        <span class="s" style="font-size:18px;margin-left:10px"><span data-f="in_h">—</span>% humidity</span>
+      </div>
+    </div>
+
+    <div style="flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;border-left:2px solid #D8C9B2;padding-left:36px;margin-left:40px">
+      <h2 class="l">Today so far</h2>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px">
+        <span class="lo" style="font-size:44px;font-weight:300"><span data-f="lo">—</span><span class="l" style="font-size:15px;letter-spacing:.08em"> low</span></span>
+        <span class="hi" style="font-size:44px;font-weight:300"><span data-f="hi">—</span><span class="l" style="font-size:15px;letter-spacing:.08em"> high</span></span>
+      </div>
+      <div class="range" data-range="today" style="margin-top:10px">
+        <div class="track"></div>
+        <div class="r-actual"></div>
+        <div class="r-fclo"></div>
+        <div class="r-fchi"></div>
+        <div class="r-now"></div>
+      </div>
+      <div class="s" style="display:flex;justify-content:space-between;font-size:16px;margin-top:10px">
+        <span>Forecast low <strong style="color:#2B211A;font-weight:600" data-f="fc_lo">—</strong></span>
+        <span>● Now <span data-f="now_t">—</span></span>
+        <span>Forecast high <strong style="color:#2B211A;font-weight:600" data-f="fc_hi">—</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div style="flex:2 1 0;padding-right:20px">
+      <h2 class="l">Air</h2>
+      <div class="pair" style="margin-top:8px">
+        <div><span class="s" style="font-size:15px">Humidity</span><span class="big"><span data-f="out_h">—</span><span class="s" style="font-size:17px">%</span></span></div>
+        <div><span class="s" style="font-size:15px" data-f="p_label">Pressure</span><span class="big"><span data-f="out_p">—</span><span class="s" style="font-size:15px"> <span data-f="u_p"></span></span></span></div>
+      </div>
+    </div>
+    <div style="flex:2.2 1 0;padding-right:20px">
+      <h2 class="l">Wind</h2>
+      <div class="pair" style="margin-top:8px;align-items:flex-end">
+        <div><span class="s" style="font-size:15px">From <span data-f="dir_name">—</span> · <span data-f="dir_deg"></span></span>
+          <span style="display:flex;align-items:center">
+            <svg width="30" height="30" viewBox="0 0 24 24" role="img" aria-label="Wind direction"><g data-rot="toward" data-c="12 12"><path d="M12 20V4M6 10l6-6 6 6" fill="none" stroke="#2B211A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g></svg>
+            <span class="big" style="margin-left:8px"><span data-f="wind">—</span><span class="s" style="font-size:15px"> <span data-f="u_w"></span></span></span>
+          </span>
+        </div>
+        <div><span class="s" style="font-size:15px">Gusts</span><span class="big"><span data-f="gust">—</span><span class="s" style="font-size:15px"> <span data-f="u_w"></span></span></span></div>
+      </div>
+    </div>
+    <div style="flex:2.6 1 0">
+      <h2 class="l">Rain</h2>
+      <div class="pair" style="margin-top:8px">
+        <div><span class="s" style="font-size:15px">Today</span><span class="big"><span data-f="rain_today">—</span><span class="s" style="font-size:15px"> <span data-f="u_r"></span></span></span></div>
+        <div><span class="s" style="font-size:15px">Month</span><span class="big"><span data-f="rain_month">—</span><span class="s" style="font-size:15px"> <span data-f="u_r"></span></span></span></div>
+        <div><span class="s" style="font-size:15px">Year</span><span class="big"><span data-f="rain_year">—</span><span class="s" style="font-size:15px"> <span data-f="u_r"></span></span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fc" data-list="fc" data-n="5" data-skip="1">
+    <div>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;flex:1 1 auto">
+        <span style="font-size:18px;font-weight:700" data-k="name"></span>
+        <span data-icon="day" style="width:36px;height:36px;margin-top:6px"></span>
+        <span class="s" style="font-size:15px;margin-top:6px" data-k="cond"></span>
+      </div>
+      <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center">
+        <span class="hi" style="font-size:22px" data-k="hi"></span>
+        <div class="vt"><span data-bar="v"></span></div>
+        <span class="lo" style="font-size:22px" data-k="lo"></span>
+      </div>
+    </div>
+  </div>
+</div>
+<script>window.WX_LAYOUT = 'C';</script>
+<script src="/app.js"></script>
+</body>
+</html>

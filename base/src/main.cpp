@@ -1,68 +1,53 @@
 // Base station: receive LoRa packets, keep rain history, serve the iPad page.
 //
-// Stability rules:
-//   * Hardware watchdog on the main loop.
-//   * No blocking calls: WiFi joins are async, everything is polled.
-//   * No heap allocation after startup (lwIP uses its own fixed pools).
-//
+// One core, one cooperative loop (docs/plan.md, "Firmware architecture").
 // WiFi credentials come from, in order: a dev build override
-// (WX_DEV_WIFI_SSID, set via CMake), then settings saved in flash, then setup
-// mode (the Pico hosts its own network with a config page). See docs/plan.md.
-//
-// TODO: settings in flash + setup mode, LoRa receive, indoor sensor, NTP time,
-//       flash save of the rain ledger, web server.
+// (WX_DEV_WIFI_SSID via CMake), then settings saved in flash, then setup mode.
 
 #include <cstdio>
 
+#include "app.h"
 #include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
-#include "wifi_supervisor.h"
-#include "wx/packet.h"
-#include "wx/rain_ledger.h"
-
-#ifndef WX_DEV_WIFI_SSID
-#define WX_DEV_WIFI_SSID ""
-#endif
-#ifndef WX_DEV_WIFI_PASSWORD
-#define WX_DEV_WIFI_PASSWORD ""
-#endif
 
 namespace {
 
 constexpr uint32_t kWatchdogMs = 8000;
-constexpr bool kDevWifi = sizeof(WX_DEV_WIFI_SSID) > 1;
 
-wx::RainLedger g_ledger;  // static storage, not heap
-// TODO: once settings live in flash, pass the saved network when !kDevWifi.
-wx::WifiSupervisor g_wifi(WX_DEV_WIFI_SSID, WX_DEV_WIFI_PASSWORD);
+wxb::App g_app;
 
 }  // namespace
+
+// SNTP hook (see lwipopts.h). Runs inside cyw43_arch_poll(), i.e. the main loop.
+extern "C" void wx_sntp_set_time(unsigned int sec) { g_app.on_time(sec); }
+
+// Linker symbol: end of the firmware image in flash.
+extern "C" char __flash_binary_end;
+extern "C" uint32_t wxp_flash_region_start();
 
 int main() {
   stdio_init_all();
 
-  const bool watchdog_reboot_seen = watchdog_caused_reboot();
-  watchdog_enable(kWatchdogMs, true);
-
-  if (cyw43_arch_init() != 0) {
-    std::printf("cyw43 init failed, waiting for watchdog reset\n");
+  // The WiFi chip firmware upload takes a moment; enable the watchdog after.
+  if (cyw43_arch_init_with_country(CYW43_COUNTRY_USA) != 0) {
+    std::printf("cyw43 init failed; rebooting in 5 s\n");
+    sleep_ms(5000);
+    watchdog_reboot(0, 0, 0);
     for (;;) tight_loop_contents();
   }
-  cyw43_arch_enable_sta_mode();
-  std::printf("base station start (watchdog reboot: %s)\n", watchdog_reboot_seen ? "yes" : "no");
+  watchdog_enable(kWatchdogMs, true);
+
+  const uintptr_t image_end = reinterpret_cast<uintptr_t>(&__flash_binary_end) - XIP_BASE;
+  if (image_end > wxp_flash_region_start()) {
+    std::printf("FATAL: firmware overlaps the settings area in flash\n");
+  }
+
+  std::printf("base station %s starting\n", WX_VERSION);
+  g_app.init();
 
   for (;;) {
-    const uint32_t now = to_ms_since_boot(get_absolute_time());
-
-    cyw43_arch_poll();  // drive the WiFi chip and lwIP
-    if (kDevWifi) {
-      g_wifi.poll(now);
-    }
-    // TODO: else use saved settings, or run setup mode if there are none.
-    // TODO: radio_poll() -> wx::decode() -> g_ledger.on_reading(...)
-
-    watchdog_update();
-    cyw43_arch_wait_for_work_until(make_timeout_time_ms(50));
+    g_app.loop_once();
+    cyw43_arch_wait_for_work_until(make_timeout_time_ms(10));
   }
 }

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather station settings</title>
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#F4F6F8;color:#13202B;font:16px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px 16px 80px}
+h1{font-size:24px;margin:8px 0 4px}
+h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:#5B6B78;margin:0 0 12px}
+.card{background:#fff;border:1px solid #DDE3E8;border-radius:14px;padding:16px;margin-top:16px}
+label{display:block;font-weight:600;margin:12px 0 4px}
+label:first-of-type{margin-top:0}
+.hint{color:#5B6B78;font-size:14px;margin:4px 0 0}
+input,select{box-sizing:border-box;width:100%;font:inherit;padding:10px 12px;border:1px solid #C7D0D7;border-radius:10px;background:#fff;color:#13202B;-webkit-appearance:none}
+select{background-image:linear-gradient(45deg,transparent 50%,#5B6B78 50%),linear-gradient(135deg,#5B6B78 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 12px) 50%;background-size:6px 6px;background-repeat:no-repeat}
+.two{display:flex}
+.two>*{flex:1 1 0;min-width:0}
+.two>*+*{margin-left:12px}
+button{font:inherit;font-weight:600;padding:10px 16px;border-radius:10px;border:1px solid #1F6FB2;background:#1F6FB2;color:#fff;cursor:pointer;min-height:44px}
+button.alt{background:#fff;color:#1F6FB2}
+button.danger{background:#fff;color:#B3261E;border-color:#B3261E}
+.btns{margin-top:12px}
+.btns>*+*{margin-left:8px}
+.nets{margin-top:8px;border:1px solid #DDE3E8;border-radius:10px;max-height:240px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.nets button{display:flex;width:100%;justify-content:space-between;background:#fff;color:#13202B;border:0;border-bottom:1px solid #EEF1F4;border-radius:0;font-weight:400;text-align:left}
+.nets button:last-child{border-bottom:0}
+.msg{position:fixed;left:16px;right:16px;bottom:16px;max-width:608px;margin:0 auto;padding:12px 16px;border-radius:12px;font-weight:600;display:none}
+.msg.ok{display:block;background:#DFF3E6;color:#14532D}
+.msg.err{display:block;background:#FDE2E0;color:#8A1C14}
+.banner{background:#13354F;color:#fff;border-radius:14px;padding:16px;margin-top:12px}
+.banner p{margin:6px 0 0;color:#C9D9E6}
+table{width:100%;border-collapse:collapse;font-size:15px}
+td{padding:6px 0;border-bottom:1px solid #EEF1F4}
+td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.prob{padding:8px 12px;border-radius:10px;margin-top:6px;font-weight:600}
+.prob.l1{background:#FFF1D6;color:#7A4B00}.prob.l2{background:#FDE2E0;color:#8A1C14}
+a{color:#1F6FB2}
+.chk{display:flex;align-items:center;font-weight:400}
+.chk input{width:auto;margin:0 8px 0 0}
+</style>
+</head>
+<body>
+<main>
+  <h1>Weather station</h1>
+  <a href="/">← Back to the display</a>
+
+  <div class="banner" id="setup-banner" style="display:none">
+    <strong>Setup mode</strong>
+    <p id="setup-text">Choose your home WiFi below. The station will join it and this setup network will turn off a minute later.</p>
+  </div>
+
+  <form id="f" autocomplete="off">
+  <section class="card" id="wifi">
+    <h2>WiFi</h2>
+    <label for="ssid">Network name</label>
+    <input id="ssid" name="ssid" maxlength="32" autocapitalize="none" autocorrect="off">
+    <div class="btns"><button type="button" class="alt" id="scan">Find networks</button></div>
+    <div class="nets" id="nets" style="display:none"></div>
+    <label for="pass">Password</label>
+    <input id="pass" name="pass" type="password" maxlength="64" placeholder="Leave blank to keep the current one">
+    <label class="chk"><input type="checkbox" id="open_network"> Network has no password</label>
+    <p class="hint">Connected as <strong id="cur-ip">—</strong> · <span id="cur-host">weather</span>.local</p>
+  </section>
+
+  <section class="card">
+    <h2>Location &amp; time</h2>
+    <div class="two">
+      <div><label for="lat">Latitude</label><input id="lat" name="lat" inputmode="decimal" placeholder="39.7392"></div>
+      <div><label for="lon">Longitude</label><input id="lon" name="lon" inputmode="decimal" placeholder="-104.9903"></div>
+    </div>
+    <p class="hint">Decimal degrees, used for the forecast. From any map app: long-press your house.</p>
+    <div class="two">
+      <div><label for="elev">Elevation (<span id="elev-u">ft</span>)</label><input id="elev" name="elev" inputmode="decimal"></div>
+      <div><label for="tzsel">Time zone</label>
+        <select id="tzsel">
+          <option value="EST5EDT,M3.2.0,M11.1.0">Eastern</option>
+          <option value="CST6CDT,M3.2.0,M11.1.0">Central</option>
+          <option value="MST7MDT,M3.2.0,M11.1.0">Mountain</option>
+          <option value="MST7">Arizona (no DST)</option>
+          <option value="PST8PDT,M3.2.0,M11.1.0">Pacific</option>
+          <option value="AKST9AKDT,M3.2.0,M11.1.0">Alaska</option>
+          <option value="HST10">Hawaii</option>
+          <option value="custom">Other (POSIX TZ)…</option>
+        </select>
+      </div>
+    </div>
+    <input id="tz" name="tz" style="display:none;margin-top:8px" placeholder="e.g. CET-1CEST,M3.5.0,M10.5.0/3">
+    <div class="btns"><button type="button" class="alt" id="fill">Fill elevation &amp; time zone from forecast</button></div>
+    <p class="hint" id="fill-hint">Save a location first; the next forecast includes elevation and time zone.</p>
+  </section>
+
+  <section class="card">
+    <h2>Units</h2>
+    <div class="btns" style="margin:0 0 4px"><button type="button" class="alt" id="us">US</button><button type="button" class="alt" id="metric">Metric</button></div>
+    <div class="two">
+      <div><label for="temp_unit">Temperature</label><select id="temp_unit" name="temp_unit"><option value="F">°F</option><option value="C">°C</option></select></div>
+      <div><label for="press_unit">Pressure</label><select id="press_unit" name="press_unit"><option value="inHg">inHg</option><option value="hPa">hPa (mbar)</option><option value="mmHg">mmHg</option></select></div>
+    </div>
+    <div class="two">
+      <div><label for="wind_unit">Wind</label><select id="wind_unit" name="wind_unit"><option value="mph">mph</option><option value="km/h">km/h</option><option value="m/s">m/s</option><option value="kn">knots</option></select></div>
+      <div><label for="rain_unit">Rain</label><select id="rain_unit" name="rain_unit"><option value="in">inches</option><option value="mm">mm</option></select></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Display</h2>
+    <label for="layout">Layout</label>
+    <select id="layout" name="layout">
+      <option value="auto">Auto: light by day, dark at night</option>
+      <option value="A">A · Dark panels</option>
+      <option value="B">B · Sky band</option>
+      <option value="C">C · Desert</option>
+      <option value="D">D · Station vs. forecast</option>
+    </select>
+    <div class="two" id="auto-pair">
+      <div><label for="day_layout">By day</label><select id="day_layout" name="day_layout"><option>A</option><option>B</option><option>C</option><option>D</option></select></div>
+      <div><label for="night_layout">At night</label><select id="night_layout" name="night_layout"><option>A</option><option>B</option><option>C</option><option>D</option></select></div>
+    </div>
+    <p class="hint">Preview any layout once: <a href="/?layout=a">A</a> · <a href="/?layout=b">B</a> · <a href="/?layout=c">C</a> · <a href="/?layout=d">D</a></p>
+  </section>
+
+  <section class="card">
+    <h2>Calibration</h2>
+    <label for="rain_tip">Rain per bucket tip (<span id="tip-u">in</span>)</label>
+    <input id="rain_tip" inputmode="decimal">
+    <p class="hint">Pour a measured amount of water slowly through the gauge and divide by the tips counted.</p>
+    <label for="wind_cal">Anemometer: wind speed per pulse per second (<span id="cal-u">mph</span>)</label>
+    <input id="wind_cal" inputmode="decimal">
+    <label for="vane_offset">Wind vane offset (degrees)</label>
+    <input id="vane_offset" name="vane_offset" inputmode="numeric">
+    <p class="hint">Point the vane north and adjust until the display reads N.</p>
+  </section>
+
+  <section class="card">
+    <h2>Security</h2>
+    <label for="new_pin">PIN for changing settings</label>
+    <input id="new_pin" inputmode="numeric" maxlength="8" placeholder="4–8 digits; blank = no PIN">
+    <p class="hint" id="pin-state">No PIN set: anyone on your WiFi can change settings.</p>
+    <div id="pin-ask" style="display:none"><label for="pin">Current PIN (needed to save)</label><input id="pin" inputmode="numeric" maxlength="8" type="password"></div>
+  </section>
+
+  <div class="btns" style="margin-top:20px"><button type="submit" id="save">Save settings</button></div>
+  </form>
+
+  <section class="card" id="health">
+    <h2>Status</h2>
+    <div id="problems"></div>
+    <table id="stats"></table>
+  </section>
+
+  <section class="card">
+    <h2>Maintenance</h2>
+    <div class="btns" style="margin:0"><button type="button" class="alt" id="reboot">Restart</button><button type="button" class="danger" id="reset">Factory reset…</button></div>
+    <p class="hint">Factory reset erases settings and WiFi. Rain history is kept.</p>
+  </section>
+</main>
+<div class="msg" id="msg"></div>
+<script src="/app.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var cfg = null, data = null, pinNeeded = false;
+  var TZ_BY_NAME = {
+    'America/New_York': 'EST5EDT,M3.2.0,M11.1.0', 'America/Detroit': 'EST5EDT,M3.2.0,M11.1.0',
+    'America/Chicago': 'CST6CDT,M3.2.0,M11.1.0', 'America/Denver': 'MST7MDT,M3.2.0,M11.1.0',
+    'America/Boise': 'MST7MDT,M3.2.0,M11.1.0', 'America/Phoenix': 'MST7',
+    'America/Los_Angeles': 'PST8PDT,M3.2.0,M11.1.0', 'America/Anchorage': 'AKST9AKDT,M3.2.0,M11.1.0',
+    'Pacific/Honolulu': 'HST10'
+  };
+
+  function msg(text, ok) {
+    var m = $('msg');
+    m.textContent = text;
+    m.className = 'msg ' + (ok ? 'ok' : 'err');
+    clearTimeout(msg.t);
+    msg.t = setTimeout(function () { m.className = 'msg'; }, 6000);
+  }
+
+  function req(method, url, body, cb) {
+    var x = new XMLHttpRequest();
+    x.open(method, url, true);
+    x.timeout = 10000;
+    if (body !== null) x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) return;
+      var j = null;
+      try { j = JSON.parse(x.responseText); } catch (e) { j = null; }
+      cb(x.status, j);
+    };
+    x.ontimeout = function () { cb(0, null); };
+    x.send(body);
+  }
+
+  function imperial() { return $('rain_unit').value === 'in'; }
+  function windFactor() {  // display unit per (m/s)
+    var u = $('wind_unit').value;
+    return u === 'km/h' ? 3.6 : u === 'm/s' ? 1 : u === 'kn' ? 1.94384 : 2.23694;
+  }
+  function unitLabels() {
+    $('elev-u').textContent = imperial() ? 'ft' : 'm';
+    $('tip-u').textContent = imperial() ? 'in' : 'mm';
+    $('cal-u').textContent = $('wind_unit').value;
+  }
+  function showCal() {
+    if (!cfg) return;
+    $('rain_tip').value = imperial() ? (cfg.rain_um / 25400).toFixed(4) : (cfg.rain_um / 1000).toFixed(3);
+    $('wind_cal').value = (cfg.wind_mmps / 1000 * windFactor()).toFixed(3);
+    if (cfg.elev_cm !== null) $('elev').value = imperial() ? Math.round(cfg.elev_cm / 30.48) : Math.round(cfg.elev_cm / 100);
+  }
+
+  function setTz(tz) {
+    var sel = $('tzsel'), found = false, i;
+    for (i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === tz) { sel.selectedIndex = i; found = true; }
+    }
+    if (!found) sel.value = 'custom';
+    $('tz').value = tz;
+    $('tz').style.display = found ? 'none' : 'block';
+  }
+
+  function load() {
+    req('GET', '/api/config', null, function (s, j) {
+      if (s !== 200 || !j) { msg('Could not load settings', false); return; }
+      cfg = j;
+      $('ssid').value = j.ssid;
+      $('pass').placeholder = j.has_pass ? 'Leave blank to keep the current one' : 'Password';
+      $('lat').value = j.lat;
+      $('lon').value = j.lon;
+      $('temp_unit').value = j.temp_unit;
+      $('press_unit').value = j.press_unit;
+      $('wind_unit').value = j.wind_unit;
+      $('rain_unit').value = j.rain_unit;
+      $('layout').value = j.layout;
+      $('day_layout').value = j.day_layout;
+      $('night_layout').value = j.night_layout;
+      $('vane_offset').value = j.vane_offset;
+      $('cur-host').textContent = j.hostname;
+      setTz(j.tz);
+      pinNeeded = j.has_pin;
+      $('pin-ask').style.display = pinNeeded ? 'block' : 'none';
+      $('pin-state').textContent = pinNeeded ? 'A PIN is set. Enter a new one to change it, or clear it with an empty value.' :
+        'No PIN set: anyone on your WiFi can change settings.';
+      $('auto-pair').style.display = j.layout === 'auto' ? 'flex' : 'none';
+      unitLabels();
+      showCal();
+    });
+  }
+
+  function enc(k, v) { return encodeURIComponent(k) + '=' + encodeURIComponent(v); }
+
+  $('f').onsubmit = function (e) {
+    e.preventDefault();
+    var parts = [], ids = ['ssid', 'lat', 'lon', 'temp_unit', 'press_unit', 'wind_unit', 'rain_unit', 'layout', 'day_layout', 'night_layout', 'vane_offset'];
+    ids.forEach(function (id) { parts.push(enc(id, $(id).value.replace(/^\s+|\s+$/g, ''))); });
+    if ($('pass').value) parts.push(enc('pass', $('pass').value));
+    if ($('open_network').checked) parts.push(enc('open_network', '1'));
+    parts.push(enc('tz', $('tzsel').value === 'custom' ? $('tz').value : $('tzsel').value));
+    var ev = $('elev').value.replace(/^\s+|\s+$/g, '');
+    parts.push(enc('elev', ev));
+    parts.push(enc('elev_unit', imperial() ? 'ft' : 'm'));
+    var tip = parseFloat($('rain_tip').value);
+    if (tip > 0) parts.push(enc('rain_um', Math.round(imperial() ? tip * 25400 : tip * 1000)));
+    var cal = parseFloat($('wind_cal').value);
+    if (cal > 0) parts.push(enc('wind_mmps', Math.round(cal / windFactor() * 1000)));
+    if ($('new_pin').value !== '' || (pinNeeded && $('new_pin').value === '' && $('new_pin').getAttribute('data-touched'))) {
+      parts.push(enc('new_pin', $('new_pin').value));
+    }
+    if (pinNeeded) parts.push(enc('pin', $('pin').value));
+    $('save').disabled = true;
+    req('POST', '/api/config', parts.join('&'), function (s, j) {
+      $('save').disabled = false;
+      if (s === 200 && j && j.ok) {
+        msg(j.wifi_changed ? 'Saved. Joining ' + $('ssid').value + '… If this page stops responding, reconnect your phone to your home WiFi and open http://' + (j.hostname || 'weather') + '.local' : 'Saved.', true);
+        $('pass').value = '';
+        $('new_pin').value = '';
+        load();
+      } else {
+        msg((j && j.error) || 'Could not save (no response).', false);
+      }
+    });
+  };
+  $('new_pin').oninput = function () { this.setAttribute('data-touched', '1'); };
+
+  $('tzsel').onchange = function () {
+    $('tz').style.display = this.value === 'custom' ? 'block' : 'none';
+  };
+  $('layout').onchange = function () { $('auto-pair').style.display = this.value === 'auto' ? 'flex' : 'none'; };
+  ['rain_unit', 'wind_unit'].forEach(function (id) {
+    $(id).onchange = function () { unitLabels(); showCal(); };
+  });
+  function setUnits(t, p, w, r) {
+    $('temp_unit').value = t; $('press_unit').value = p; $('wind_unit').value = w; $('rain_unit').value = r;
+    unitLabels(); showCal();
+  }
+  $('us').onclick = function () { setUnits('F', 'inHg', 'mph', 'in'); };
+  $('metric').onclick = function () { setUnits('C', 'hPa', 'km/h', 'mm'); };
+
+  $('fill').onclick = function () {
+    if (!data || !data.fc) { msg('No forecast yet. Save a location and wait a minute.', false); return; }
+    var m = data.fc.elev_m;
+    $('elev').value = imperial() ? Math.round(m / 0.3048) : m;
+    var tz = TZ_BY_NAME[data.fc.tz];
+    if (tz) setTz(tz);
+    msg('Filled from forecast' + (tz ? '' : ' (time zone ' + data.fc.tz + ' needs to be entered by hand)') + '. Press Save.', true);
+  };
+
+  $('scan').onclick = function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Searching…';
+    req('POST', '/api/scan', '', function () {
+      var tries = 0;
+      (function check() {
+        req('GET', '/api/scan', null, function (s, j) {
+          if (s === 200 && j && (!j.scanning || tries > 10)) {
+            btn.disabled = false;
+            btn.textContent = 'Find networks';
+            var box = $('nets');
+            box.innerHTML = '';
+            j.nets.sort(function (a, b) { return b.rssi - a.rssi; });
+            j.nets.forEach(function (n) {
+              var b = document.createElement('button');
+              b.type = 'button';
+              var name = document.createElement('span');
+              name.textContent = n.ssid;
+              var sig = document.createElement('span');
+              sig.textContent = (n.auth ? '🔒 ' : '') + (n.rssi > -60 ? '▂▄▆' : n.rssi > -75 ? '▂▄' : '▂');
+              b.appendChild(name);
+              b.appendChild(sig);
+              b.onclick = function () {
+                $('ssid').value = n.ssid;
+                $('open_network').checked = !n.auth;
+                $('pass').focus();
+              };
+              box.appendChild(b);
+            });
+            box.style.display = j.nets.length ? 'block' : 'none';
+            if (!j.nets.length) msg('No networks found. Try again.', false);
+          } else {
+            tries++;
+            setTimeout(check, 1000);
+          }
+        });
+      })();
+    });
+  };
+
+  function pinBody() { return pinNeeded ? enc('pin', $('pin').value) : ''; }
+  $('reboot').onclick = function () {
+    req('POST', '/api/reboot', pinBody(), function (s, j) {
+      if (s === 200) msg('Restarting… this page will work again in about 20 seconds.', true);
+      else msg((j && j.error) || 'Restart failed', false);
+    });
+  };
+  $('reset').onclick = function () {
+    if (!confirm('Erase all settings, including WiFi? Rain history is kept.')) return;
+    req('POST', '/api/reset', pinBody(), function (s, j) {
+      if (s === 200) msg('Settings erased. The station restarts in setup mode: join its WiFi network to set it up again.', true);
+      else msg((j && j.error) || 'Reset failed', false);
+    });
+  };
+
+  function ago(s) {
+    if (s < 120) return s + ' s';
+    if (s < 7200) return Math.round(s / 60) + ' min';
+    if (s < 172800) return Math.round(s / 3600) + ' h';
+    return Math.round(s / 86400) + ' days';
+  }
+
+  function health() {
+    req('GET', '/data.json', null, function (s, d) {
+      if (s !== 200 || !d) return;
+      data = d;
+      var sys = d.sys || {};
+      $('cur-ip').textContent = sys.ip || 'not connected';
+      $('setup-banner').style.display = sys.setup ? 'block' : 'none';
+      $('fill-hint').style.display = d.fc ? 'none' : 'block';
+      var pbox = $('problems');
+      pbox.innerHTML = '';
+      (d.problems || []).forEach(function (p) {
+        var div = document.createElement('div');
+        div.className = 'prob l' + p.l;
+        div.textContent = p.c.replace(/_/g, ' ') + (p.x ? ' (' + p.x + ')' : '');
+        pbox.appendChild(div);
+      });
+      if (!(d.problems || []).length) pbox.innerHTML = '<div class="prob" style="background:#DFF3E6;color:#14532D">Everything is working.</div>';
+      var out = d.out || {};
+      var rows = [
+        ['Firmware', sys.version],
+        ['Base station up for', ago(sys.uptime_s || 0)],
+        ['Outdoor station up for', out.uptime_s !== undefined ? ago(out.uptime_s) : '—'],
+        ['Last outdoor packet', out.age_s !== undefined ? ago(out.age_s) + ' ago' : 'never'],
+        ['Radio signal (last / average)', out.rssi !== undefined ? out.rssi + ' / ' + sys.rssi_avg + ' dBm' : '—'],
+        ['Packets received / rejected', sys.rx + ' / ' + sys.rx_bad],
+        ['Radio power cycles', sys.radio_cycles],
+        ['Outdoor battery', out.batt_mv ? (out.batt_mv / 1000).toFixed(2) + ' V' : '—'],
+        ['Solar panel', out.solar_mv ? (out.solar_mv / 1000).toFixed(2) + ' V' : '—'],
+        ['WiFi reconnects', sys.wifi_reconnects],
+        ['Slowest loop (base / outdoor)', sys.max_loop_ms + ' / ' + sys.out_max_loop_ms + ' ms'],
+        ['Outdoor sensor errors (last packet)', sys.out_sensor_err],
+        ['Forecast age', d.fc ? ago(d.fc.age_s) : '—']
+      ];
+      var t = $('stats');
+      t.innerHTML = '';
+      rows.forEach(function (r) {
+        var tr = document.createElement('tr');
+        var a = document.createElement('td');
+        var b = document.createElement('td');
+        a.textContent = r[0];
+        b.textContent = r[1] === undefined || r[1] === null ? '—' : String(r[1]);
+        tr.appendChild(a);
+        tr.appendChild(b);
+        t.appendChild(tr);
+      });
+      // Daily rain, last 30 days.
+      if (d.rain && d.rain.days_um) {
+        var tr2 = document.createElement('tr');
+        var c = document.createElement('td');
+        c.colSpan = 2;
+        c.style.textAlign = 'left';
+        var max = 1;
+        d.rain.days_um.forEach(function (v) { if (v > max) max = v; });
+        var bars = '<div style="font-size:13px;color:#5B6B78;margin-bottom:4px">Rain, last 30 days</div><div style="display:flex;align-items:flex-end;height:60px">';
+        d.rain.days_um.forEach(function (v) {
+          bars += '<div title="' + (v / 1000).toFixed(1) + ' mm" style="flex:1 1 0;margin-right:2px;background:#1F6FB2;height:' + Math.max(1, Math.round(v / max * 60)) + 'px;opacity:' + (v ? 1 : 0.2) + '"></div>';
+        });
+        c.innerHTML = bars + '</div>';
+        tr2.appendChild(c);
+        t.appendChild(tr2);
+      }
+    });
+  }
+
+  load();
+  health();
+  setInterval(health, 10000);
+})();
+</script>
+</body>
+</html>
