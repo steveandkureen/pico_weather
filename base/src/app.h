@@ -32,7 +32,6 @@ class App : public HttpHandler {
 
  private:
   void load_storage();
-  void apply_settings(bool first_time);
   void save_settings();
   void maybe_save_history(uint32_t now, bool after_packet);
   void poll_radio(uint32_t now);
@@ -66,6 +65,7 @@ class App : public HttpHandler {
   wx::E220Radio radio_;
   uint32_t last_packet_ms_ = 0;
   int radio_recovery_level_ = 0;
+  uint32_t next_radio_recovery_ms_ = 0;
   uint32_t next_radio_verify_ = 0;
 
   // Network

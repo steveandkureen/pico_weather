@@ -28,3 +28,8 @@ target_compile_definitions(wx_tests PRIVATE WX_FIXTURE_DIR="${CMAKE_CURRENT_LIST
 
 enable_testing()
 add_test(NAME wx_tests COMMAND wx_tests)
+
+# Sample /data.json for tools/dev_server.py.
+add_executable(wx_sample make_sample.cpp)
+target_link_libraries(wx_sample PRIVATE wx_common)
+target_compile_definitions(wx_sample PRIVATE WX_FIXTURE_DIR="${CMAKE_CURRENT_LIST_DIR}/fixtures")

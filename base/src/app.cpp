@@ -111,16 +111,6 @@ void App::maybe_save_history(uint32_t now, bool after_packet) {
 
 // ---------------------------------------------------------------- settings
 
-void App::apply_settings(bool first_time) {
-  station_.set_settings(settings_);
-  if (!first_time) wifi_.set_hostname(settings_.hostname);
-  if (kDevWifi) {
-    wifi_.set_network(WX_DEV_WIFI_SSID, WX_DEV_WIFI_PASSWORD, now_ms());
-  } else {
-    wifi_.set_network(settings_.wifi_ssid, settings_.wifi_pass, now_ms());
-  }
-}
-
 void App::on_time(uint32_t unix_s) {
   station_.clock().sync(unix_s, time_us_64());
   std::printf("time: set from NTP (%lu)\n", static_cast<unsigned long>(unix_s));
@@ -142,6 +132,7 @@ void App::init() {
   radio_port_.init();
   radio_.start(now_ms());
   last_packet_ms_ = now_ms();
+  next_radio_recovery_ms_ = last_packet_ms_ + kRadioSilenceMs;
 
   wifi_.begin(settings_.hostname, now_ms());
   station_.set_settings(settings_);
@@ -173,18 +164,19 @@ void App::poll_radio(uint32_t now) {
     station_.on_packet(r, rssi, now, time_us_64());
     last_packet_ms_ = now;
     radio_recovery_level_ = 0;
+    next_radio_recovery_ms_ = now + kRadioSilenceMs;
     got = true;
   }
   station_.set_radio_ok(!radio_.dead(), now);
 
-  // Nothing heard for a long time: maybe our radio is the problem. Re-apply
-  // its settings, then power-cycle it, then keep power-cycling every 20 min.
-  if (now - last_packet_ms_ > kRadioSilenceMs * static_cast<uint32_t>(radio_recovery_level_ + 1)) {
-    ++radio_recovery_level_;
+  // Nothing heard for a long time: maybe our radio is the problem. After
+  // 10 min re-apply its settings; after that power-cycle it every 20 min.
+  if (reached(now, next_radio_recovery_ms_)) {
+    if (radio_recovery_level_ < 2) ++radio_recovery_level_;
     std::printf("radio: silent for %lu min, recovery level %d\n",
                 static_cast<unsigned long>((now - last_packet_ms_) / 60000), radio_recovery_level_);
-    radio_.recover(radio_recovery_level_ >= 2 ? 2 : 1, now);
-    if (radio_recovery_level_ > 6) radio_recovery_level_ = 2;  // keep trying every ~20 min
+    radio_.recover(radio_recovery_level_, now);
+    next_radio_recovery_ms_ = now + 2 * kRadioSilenceMs;
   }
   if (reached(now, next_radio_verify_)) {
     next_radio_verify_ = now + kRadioVerifyMs;

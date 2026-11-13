@@ -68,6 +68,25 @@ main():
 
 ---
 
+## Status (2026-11-13)
+
+**All firmware for Steps 2–5 is written, builds cleanly, and the hardware-independent logic passes PC tests. None of it has run on a real Pico yet.** Each step below stays open until its "Done when" check passes on hardware.
+
+| Step | Code | Tested on PC | Tested on hardware |
+|---|---|---|---|
+| 2 · Base core (flash, NTP, web, setup mode, forecast, mDNS) | ✅ | logic ✅ (flash store with power cuts, settings, TZ/DST, forecast parser on a real reply, JSON, problems); pages ✅ in a desktop browser | ⬜ |
+| 3 · Indoor BME280 | ✅ | ✅ (driver against a simulated sensor, incl. unplug/replug) | ⬜ |
+| 4 · LoRa link (E220 UART) | ✅ | ✅ (driver against a simulated module: factory config, hangs, power cycles) | ⬜ (modules in shipping) |
+| 5 · Outdoor sensors | ✅ | wind/rain math ✅ | ⬜ |
+
+**Things to check first on hardware:**
+- **E220 register values and timings:** written from the manual. Verify the config read-back on first power-up (the USB log prints it).
+- **The ~1.7 kB Open-Meteo reply and the forecast request:** confirmed from this PC over raw HTTP/1.0. On the Pico, check that DNS + TCP work through the home network.
+- **Setup mode captive page on an iPhone:** the redirect logic is in place; confirm the sheet pops up.
+- **The iPad 4's real Safari:** the pages were checked in a desktop browser and scanned for ES5-only syntax, but not on iOS 10 itself.
+
+---
+
 ## Step 0 — Lock down the hardware  ⬜ *needs your decisions*
 
 Proposed parts list (✅ = confirmed, 🔶 = proposed, waiting for your OK):

@@ -1,42 +1,44 @@
 # pico_weather
 
-A two-part weather station built for long unattended uptime.
+A two-part weather station built to run for years without being touched.
 
-- **outdoor/**: Raspberry Pi Pico 2. Reads temp/humidity/pressure, wind and rain, then sends one LoRa packet every 30 s. Keeps no saved state.
-- **base/**: Raspberry Pi Pico 2 W, indoors. Receives packets, reads its own indoor sensor, keeps rain history in flash and serves a lightweight page for an iPad 4.
-- **common/**: Plain C++ shared by both boards: the packet format and the rain ledger.
-- **tests/**: Host-side tests for `common/`, run on the PC.
+- **outdoor/**: Raspberry Pi Pico 2. Counts rain-bucket tips and anemometer pulses, reads the wind vane and a BME280, and sends one LoRa packet every 30 s. It keeps nothing in flash, so a reboot loses nothing.
+- **base/**: Raspberry Pi Pico 2 W, indoors. Receives packets, reads its own BME280 and keeps rain history in flash. It also fetches the forecast from Open-Meteo and serves the iPad display at **http://weather.local**.
+- **common/**: Plain C++ shared by both boards and tested on the PC: packet format, rain ledger, settings, timezone/DST, sensor and radio drivers, JSON, forecast parser, and the station model.
+- **pico_drivers/**: Thin Pico SDK layers (I2C with timeouts and bus recovery, flash, LoRa UART).
+- **web/**: The iPad pages. There are four layouts plus `/config`, all plain ES5 for iOS 10 Safari, gzipped into the firmware at build time.
+- **tests/**: Host tests for `common/` (run with ASan/UBSan) plus a sample-data generator.
+- **docs/plan.md**: The decisions, pin map and step-by-step plan.
 
 C++17 on the official Pico SDK (2.2.0, found at `~/src/pico-sdk` or `$PICO_SDK_PATH`).
 
 ## Stability rules
 
-- Hardware watchdog on both boards.
-- No heap allocation after startup; lwIP uses its own fixed pools.
-- No blocking calls in the main loop; every sensor and radio call has a time limit.
-- Rain is sent as a running tip count plus a per-boot id, so lost packets and reboots on either side never lose rain.
+- **One core, one cooperative loop.** No RTOS.
+- **Watchdog on both boards**, fed only while every task keeps making progress.
+- **No heap after startup.** lwIP uses its own fixed pools.
+- **Nothing in the main loop blocks.** Every sensor, radio and network step has a deadline.
+- **Recovery escalates:**
+  - Sensors: reset the I2C bus, then re-initialize the sensor.
+  - LoRa radio: re-apply its settings, then power-cycle it.
+  - WiFi: rejoin, bring up the setup network, then power-cycle the WiFi chip.
+- **Rain can't be lost by a dropped packet or a reboot.** The outdoor unit sends a running tip count plus a per-boot ID, and the base station saves history in two flash copies, each with a CRC.
 
 ## Build
-
-Run the host tests:
 
 ```bash
 cmake -S tests -B build/tests -G Ninja && cmake --build build/tests && ./build/tests/wx_tests
 ```
 
-Build the outdoor firmware:
-
 ```bash
 cmake -S outdoor -B build/outdoor -G Ninja && cmake --build build/outdoor
 ```
-
-Build the base station firmware. WiFi is set from the station's own setup page and saved in flash, so there's nothing to edit before building:
 
 ```bash
 cmake -S base -B build/base -G Ninja && cmake --build build/base
 ```
 
-For development, bake in a network so the board joins it on its own (overrides saved settings; never install this build):
+**Development build** with your WiFi baked in. It overrides saved settings; never install it permanently:
 
 ```bash
 cmake -S base -B build/base-dev -G Ninja -DWX_DEV_WIFI_SSID=MyNet -DWX_DEV_WIFI_PASSWORD=secret && cmake --build build/base-dev
@@ -44,4 +46,35 @@ cmake -S base -B build/base-dev -G Ninja -DWX_DEV_WIFI_SSID=MyNet -DWX_DEV_WIFI_
 
 `WX_DEV_WIFI_SSID` / `WX_DEV_WIFI_PASSWORD` environment variables work too. The values stay in the gitignored `build/` folder.
 
-To flash, hold BOOTSEL while plugging in the board, then copy the `.uf2` from `build/<name>/` onto it.
+## Flash
+
+Hold **BOOTSEL** while plugging the board into USB, then copy the `.uf2` onto the drive that appears:
+
+- outdoor: `build/outdoor/wx_outdoor.uf2`
+- base: `build/base/wx_base.uf2`
+
+Or use picotool:
+
+```bash
+picotool load -x build/base/wx_base.uf2
+```
+
+Both boards print a log over USB serial (e.g. `screen /dev/ttyACM0`).
+
+## First boot of the base station
+
+1. With no WiFi saved, the base station starts an open network called **WeatherStation-XXXX**, and the on-board LED stays on.
+2. Join it from a phone. The setup page should pop up automatically; if it doesn't, open **http://192.168.4.1/config**.
+3. Tap **Find networks**, pick your WiFi, enter the password, and set your location. Then press **Save**.
+4. The station joins your WiFi, and the setup network turns off a minute later.
+5. On the iPad, open **http://weather.local** in Safari, then Share → **Add to Home Screen**.
+
+The setup network comes back on its own if your WiFi is unreachable for 10 minutes. Press the setup button (GP15) to open it on demand, or hold it for 10 s to erase settings. Rain history is kept either way.
+
+## Working on the web pages without a Pico
+
+```bash
+python3 tools/dev_server.py
+```
+
+Then open http://localhost:8000 (`/?layout=a` through `d`, or `/config`). Add `--problems` to see the status bar. The sample data comes from the real `Station` code (`build/tests/wx_sample`), so build the tests first.
