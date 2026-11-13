@@ -3,6 +3,10 @@
 // The packet is serialized field by field as little-endian bytes. It is never
 // memcpy'd as a struct, so the layout can't drift between compilers, boards
 // or future versions.
+//
+// The outdoor station sends RAW measurements (pulse counts, uncalibrated vane
+// angle). All calibration lives in the base station's settings, so it can be
+// changed from the /config page without touching the outdoor unit.
 #pragma once
 
 #include <cstddef>
@@ -12,7 +16,9 @@ namespace wx {
 
 constexpr uint8_t kPacketMagic = 0xA7;
 constexpr uint8_t kPacketVersion = 1;
-constexpr size_t kPacketSize = 35;
+constexpr size_t kPacketSize = 41;
+
+constexpr uint16_t kNoWindDir = 0xFFFF;
 
 // Why the sender last rebooted. Reported so the base station can show it.
 enum class ResetReason : uint8_t {
@@ -29,6 +35,7 @@ enum ValidBits : uint8_t {
   kValidWind = 1u << 2,
   kValidWindDir = 1u << 3,
   kValidBattery = 1u << 4,
+  kValidSolar = 1u << 5,
 };
 
 struct OutdoorReading {
@@ -40,12 +47,16 @@ struct OutdoorReading {
   uint8_t valid = 0;      // ValidBits
   int16_t temp_c_x100 = 0;
   uint16_t humidity_x100 = 0;  // %RH * 100
-  uint32_t pressure_pa = 0;
-  uint16_t wind_avg_mps_x100 = 0;
-  uint16_t wind_gust_mps_x100 = 0;
-  uint16_t wind_dir_deg = 0;   // 0..359, direction the wind comes FROM
+  uint32_t pressure_pa = 0;    // station pressure (not sea-level corrected)
+  uint16_t wind_pulses = 0;        // anemometer pulses during the interval
+  uint16_t wind_interval_ms = 0;   // length of that interval
+  uint16_t gust_pulses_3s = 0;     // most pulses in any 3-second window of the interval
+  uint16_t wind_dir_raw_deg = kNoWindDir;  // vector-averaged vane angle, 0..359, before north offset
   uint32_t rain_tips = 0;      // running count of bucket tips since boot
   uint16_t battery_mv = 0;
+  uint16_t solar_mv = 0;
+  uint8_t max_loop_ms = 0;     // slowest main-loop pass since last packet (health)
+  uint8_t sensor_errors = 0;   // I2C/sensor errors since last packet, saturating (health)
 };
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF).

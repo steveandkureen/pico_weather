@@ -26,6 +26,46 @@ Whenever there's a trade-off, stability wins over features and convenience.
 | Rain history | Daily totals for 400 days, saved in flash | Today / month / year are sums of those days, and a daily chart comes free |
 | Stability rules | Watchdog on both boards, no heap after startup, nothing in the main loop blocks, every sensor call has a time limit | Avoids the "reboot it every few weeks" failure |
 
+**Firmware architecture:** one core, one super loop, no RTOS (details below).
+
+### Firmware architecture
+
+**One core, one cooperative super loop, no RTOS, on both boards.** Core 1 is left off.
+
+```
+main():
+  init everything, enable watchdog
+  loop forever:
+    now = ms since boot
+    radio.poll(now)      // read UART ring buffer, rebuild packets, recovery steps
+    sensors.poll(now)    // BME280 state machine: start reading → wait → read → sleep
+    wind.poll(now)       // outdoor: 1-s pulse buckets → 3-s gusts, vane samples
+    wifi.poll(now)       // base: link supervision and recovery (async join)
+    net.poll()           // base: cyw43_arch_poll() runs lwIP: web, mDNS, NTP, forecast
+    storage.poll(now)    // base: save ledger/settings when due
+    health.check(now)    // every task made progress? → watchdog_update()
+    sleep until next timer or interrupt (≤ 10–50 ms)
+```
+
+**Rules every task follows**
+- **`poll()` never waits.** It does a small step and returns, aiming for under 5 ms. Anything slow is a state machine. Example: the BME280 needs ~10 ms to measure, so `poll` starts the reading and records the time; a later `poll` collects the result. No `sleep_ms` inside tasks.
+- **Every wait has a deadline.** I2C calls use the SDK's `*_blocking_until` versions with a few-ms limit; the radio's AUX pin, a WiFi join, a forecast fetch: each has a timeout, and each timeout leads to that task's own recovery steps.
+- **The watchdog is fed only if every task checked in.** Each task bumps a "made progress" counter; `health.check` feeds the watchdog only when all of them moved recently. A task stuck in a bad state while still being polled, such as a radio state machine waiting forever, still causes a reset, instead of hiding behind a loop that keeps spinning.
+- **No heap after startup.** All buffers are fixed and allocated at boot.
+- **The loop measures itself:** the longest loop pass and each task's worst `poll` time are reported on `/config`, so a slow task shows up before it causes trouble.
+
+**Interrupts: small and few**
+- Outdoor: two GPIO edge interrupts (anemometer, rain) that only timestamp and count.
+- Both: the UART receive interrupt copies bytes into a ring buffer (the LoRa module talks at 9600 baud; the hardware FIFO alone would overflow during a long flash write).
+- Base: WiFi uses the SDK's **poll** mode (`pico_cyw43_arch_lwip_poll`), so the network stack only ever runs from the main loop. Nothing in the network stack can be interrupted halfway by other network code.
+
+**Why not two cores or FreeRTOS?**
+- The workload is tiny: a packet every 30 s, a page fetch every 10 s, sensor reads every few seconds. One 150 MHz core will sit idle more than 99% of the time.
+- Splitting across cores means shared data between them, locks and the chance of race conditions: rare, timing-dependent bugs that show up after three weeks. That's the sprinkler-timer failure we're trying to avoid.
+- **Flash writes stall both cores anyway.** While erasing or writing flash, code can't run from flash, so with two cores the other one has to be paused (`multicore_lockout`). With one core it's just: save right after a LoRa packet arrives (the next one is ~30 s away), with interrupts briefly off.
+- An RTOS adds per-task stacks (each can overflow), priorities and preemption. A cooperative loop has exactly one stack and one order of events, so a problem seen once can be reproduced.
+- If a real need ever appears (e.g. TLS for the forecast taking too long), core 1 can be given one isolated job with a single one-way queue. It's not needed now.
+
 ---
 
 ## Step 0 — Lock down the hardware  ⬜ *needs your decisions*
@@ -59,9 +99,58 @@ Other decisions still open:
 
 **Done when:** every row above is ✅ and the pin map (Step 0b) is written.
 
-### Step 0b — Pin map
-Assign GPIO, I2C, SPI and ADC pins for both boards and put them in `outdoor/src/board.h` and `base/src/board.h`.
-Rules: keep I2C sensors on their own bus away from the radio's SPI bus; the wind vane goes on an ADC pin; the anemometer and rain gauge go on interrupt-capable GPIOs with pull-ups; pins GP23/24/25/29 on the Pico 2 W are reserved for its WiFi chip.
+### Step 0b — Pin map  ✅
+
+In code: [`outdoor/src/board.h`](../outdoor/src/board.h) and [`base/src/board.h`](../base/src/board.h). **LoRa and I2C use the same pins on both boards**, so the same driver code runs on both.
+
+**Outdoor: Pico 2**
+
+| Function | Pico pin (GPIO) | Physical pin | Connects to | Notes |
+|---|---|---|---|---|
+| LoRa UART TX | GP8 (UART1 TX) | 11 | module RXD | |
+| LoRa UART RX | GP9 (UART1 RX) | 12 | module TXD | |
+| LoRa M0 | GP10 | 14 | module M0 | mode select |
+| LoRa M1 | GP11 | 15 | module M1 | mode select |
+| LoRa AUX | GP12 | 16 | module AUX | busy flag (input) |
+| LoRa power enable | GP13 | 17 | load switch EN | high = radio on; lets firmware power-cycle a stuck module |
+| I2C SDA | GP4 (I2C0) | 6 | BME280 SDA | 50 kHz, twisted pair to the shield |
+| I2C SCL | GP5 (I2C0) | 7 | BME280 SCL | |
+| Anemometer | GP14 | 19 | Hall sensor OUT | 10k pull-up to 3V3 + 1 nF to GND at the Pico |
+| Rain gauge | GP15 | 20 | Hall sensor OUT | 10k pull-up to 3V3 + 1 nF to GND; debounced in software |
+| Wind vane | GP26 (ADC0) | 31 | AS5600 OUT | analog 0–3.3 V = 0–360°; AS5600 DIR → GND |
+| Battery voltage | GP27 (ADC1) | 32 | battery + via 100k/100k divider | ~18 µA drain; fine for solar |
+| Solar voltage | GP28 (ADC2) | 34 | panel + via 220k/47k divider | shows whether it's charging |
+| Pico supply | GP29 (ADC3) | internal | VSYS/3 on the Pico board | nothing to wire |
+| Status LED | GP25 | on-board | | brief blink on send for the first 10 min after boot only |
+| 3.3 V out | 3V3 OUT | 36 | BME280, AS5600, Hall sensors, load switch → LoRa | 300 mA max; peak LoRa TX ~110 mA |
+| Ground | GND | 38 (any GND) | all | |
+| Power in | VSYS | 39 | solar charge controller load output | Pico's onboard regulator accepts 1.8–5.5 V |
+
+**Base: Pico 2 W**
+
+| Function | Pico pin (GPIO) | Physical pin | Connects to | Notes |
+|---|---|---|---|---|
+| LoRa UART TX / RX | GP8 / GP9 (UART1) | 11 / 12 | module RXD / TXD | same as outdoor |
+| LoRa M0 / M1 / AUX | GP10 / GP11 / GP12 | 14 / 15 / 16 | module | same as outdoor |
+| LoRa power enable | GP13 | 17 | load switch EN | same as outdoor |
+| I2C SDA / SCL | GP4 / GP5 (I2C0) | 6 / 7 | BME280 | 100 kHz, short wires |
+| Setup / reset button | GP15 | 20 | push button to GND | short press: setup WiFi; hold 10 s: wipe settings (not rain history) |
+| **Reserved** | GP23, GP24, GP25, GP29 | — | WiFi chip | never use on the Pico 2 W |
+| Status LED | WiFi chip LED | on-board | | |
+| Power in | VBUS (USB) | 40 / USB | 5 V USB supply | |
+
+**Why these pins**
+- **A dedicated setup button instead of BOOTSEL.** Reading BOOTSEL while running briefly disconnects the flash chip; a $0.10 button on GP15 is simpler and safer. This replaces the "hold BOOTSEL" factory reset from the WiFi section.
+- **UART1 for LoRa** keeps UART0 (GP0/GP1) free as a debug serial port, alongside USB.
+- **The Hall modules (KY-003 style: A3144 + LED + one resistor R1):** the visible resistor is the LED's, and the LED lights when the output is pulled low. The module may have no real pull-up; check with a multimeter (resistance S↔VCC, power off): ~10k = a pull-up is fitted. Either way:
+  - Keep the 10k pull-up **to 3.3 V at the Pico end**, so the signal level is set where it's read.
+  - If the module *does* have a pull-up to its own VCC and that's 5 V, remove it, so 5 V never reaches the GPIO.
+  - **Remove R1 (or the LED) for solar:** a rain bucket can rest with its magnet next to the sensor, leaving the LED lit for days.
+  - The A3144 still needs 4.5 V+. A 3.3 V-rated replacement must sample continuously (or at ≥1 kHz) for the anemometer. Low-power "duty-cycled" Hall sensors like some DRV5032 versions sample at only 5–20 Hz and would miss pulses in high wind. A **reed switch** is a zero-power option for the rain gauge, where tips are slow.
+- **External 10k pull-ups and a 1 nF capacitor** on the pulse inputs: the internal pull-ups are weak (~50k), and long sensor wires outdoors pick up noise that would read as false rain tips. 10k × 1 nF = 10 µs, far faster than the fastest anemometer pulse (~50 Hz at 100+ mph).
+- **The wind vane uses the analog output** so the vane wire can be long; I2C wouldn't tolerate it.
+- **Load-switch parts:** a TPS22918 (or an AO3401 P-MOSFET driven by a 2N7002) on the LoRa module's 3.3 V supply. Pin 13 low = module off.
+- The **ADC pins are all used outdoors** (vane, battery, solar, VSYS). Anything else analog would need an external ADC on the I2C bus.
 
 ---
 
@@ -136,6 +225,31 @@ What all four need from the firmware (added to Step 2):
 - No web fonts or external files: the whole page is one HTML file served by the Pico.
 - The health line (uptime, reboots, packet counts) and the daily rain chart from earlier in this plan move to the `/config` page, keeping the main screen as in the mockup.
 
+### Problem status line
+
+A thin bar (about 32 px) along the bottom of every layout. **Hidden when everything is fine**; it appears only when something needs attention. It sits on top of the layout's bottom edge rather than pushing content up, so the layouts never reflow. Tapping it opens `/config` with the health details.
+
+The firmware reports a list of active problems in `/data.json` (`"problems":[{"code":"outdoor_stale","level":2,"since":…}]`); the shared page script turns codes into text. The worst problem is shown; if there are more, "+2 more". Amber = degraded, red = data is missing or wrong.
+
+| Problem | Level | Shown as |
+|---|---|---|
+| iPad can't reach the base station (detected by the page itself: 3 failed fetches) | red | "Can't reach weather station: last update 2:41 PM" |
+| No outdoor packet for 5 min / 15 min | amber / red | "No data from outdoor station for 12 min" |
+| Outdoor sensor not reporting (valid bit cleared for 3 packets in a row) | amber | "Outdoor humidity/pressure sensor not responding" (or wind / wind direction) |
+| Outdoor battery low / critical | amber / red | "Outdoor battery low (3.1 V)" |
+| Outdoor station rebooted by its watchdog in the last 24 h | amber | "Outdoor station restarted itself 2× today" |
+| Base station rebooted by its watchdog in the last 24 h | amber | "Base station restarted itself today" |
+| Indoor sensor not responding | amber | "Indoor sensor not responding" |
+| Clock not set (no NTP yet) | amber | "Clock not set: rain totals waiting" (rain is still counted; it's credited to a day once the clock is set) |
+| Forecast older than 3 h | amber | "Forecast not updated since 9:10 AM" |
+| Flash save failed | red | "Can't save rain history" |
+| Weak radio signal (average RSSI below threshold) | amber | "Weak signal from outdoor station" |
+
+Rules:
+- **Problems clear on their own** when the condition goes away; nothing needs acknowledging.
+- **A delay before showing** (e.g. 2 missed packets, not 1) so one-off blips don't flash the bar.
+- The page's own "can't reach" check runs even when the base station is completely down. Otherwise the iPad would keep showing frozen numbers that look current.
+
 ### Forecast (Open-Meteo)
 
 The base station fetches a local forecast from **[Open-Meteo](https://open-meteo.com)**: free for non-commercial use, no API key, open-source server (can be self-hosted later if the public one ever goes away).
@@ -184,7 +298,7 @@ How the base station picks a network at boot:
 Recovery so it never needs a re-flash:
 - **The saved network fails for 10 minutes** (router password changed, new router): the setup network comes back up *alongside* continued retries on the saved one. The Pico's WiFi chip can join a network and host one at the same time. Once you fix the settings, or the old network returns, setup mode turns off.
 - **`/config` page in normal mode:** change WiFi, timezone, units, calibration. The password is never sent back to the page; leave the field blank to keep it.
-- **Factory reset:** wipe saved settings from the config page, or by holding the BOOTSEL button for 10 s while the board is running.
+- **Factory reset:** wipe saved settings from the config page, or by holding the setup button (GP15) for 10 s. A short press opens the setup network on demand.
 
 Open questions: should the setup network have a password (printed on a label) or stay open? It only exists while the station is unconfigured or can't reach its network. And should `/config` on the home network ask for a PIN?
 
@@ -232,7 +346,7 @@ Open questions: should the setup network have a password (printed on a label) or
 
 - [ ] **Measure the outdoor unit's real current draw** on the bench (USB power meter) before ordering solar parts; size from the measurement, not a guess.
 - [ ] Size the panel and battery for ~7 dark days of winter. Prefer LiFePO4 (safe, long cycle life, tolerates heat in an enclosure; Li-ion cells must not be charged below 0 °C).
-- [ ] Power budget: the Hall sensors run all the time. The A3144 draws a few mA *each*, constantly; a DRV5032 draws about 1 µA. On solar that difference matters; another reason to swap.
+- [ ] Power budget: the Hall sensors run all the time. The A3144 draws ~4 mA *each*, constantly, plus its LED when lit (remove R1). Micropower Hall sensors sample too slowly for the anemometer (see Step 0b), so budget ~4 mA for that one. A reed switch on the rain gauge costs nothing.
 - [ ] Low-power design: put the LoRa module in sleep between sends, run the BME280 in forced mode, slow the Pico's clock or light-sleep between samples.
 - [ ] Brownout behavior: clean reset at low voltage, no flapping.
 - [ ] Surge/static protection on sensor wires, cable glands, vent, conformal coating on the board.

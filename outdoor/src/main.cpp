@@ -14,6 +14,7 @@
 #include "hardware/watchdog.h"
 #include "pico/rand.h"
 #include "pico/stdlib.h"
+#include "board.h"
 #include "wx/packet.h"
 
 namespace {
@@ -22,8 +23,7 @@ constexpr uint32_t kWatchdogMs = 5000;
 constexpr uint32_t kSendIntervalMs = 30000;
 constexpr uint8_t kStationId = 1;
 
-// Placeholder pin; set from the real wiring.
-constexpr uint kRainGaugePin = 15;
+constexpr uint kRainGaugePin = board::kRainGaugePin;
 constexpr uint32_t kRainDebounceUs = 50000;  // reed switch bounce
 
 // Updated only from the GPIO interrupt.
@@ -43,7 +43,7 @@ void gpio_irq(uint gpio, uint32_t events) {
 void rain_init() {
   gpio_init(kRainGaugePin);
   gpio_set_dir(kRainGaugePin, GPIO_IN);
-  gpio_pull_up(kRainGaugePin);
+  gpio_pull_up(kRainGaugePin);  // backup only; the board has an external 10k pull-up
   gpio_set_irq_enabled_with_callback(kRainGaugePin, GPIO_IRQ_EDGE_FALL, true, &gpio_irq);
 }
 

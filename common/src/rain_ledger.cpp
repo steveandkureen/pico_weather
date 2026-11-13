@@ -49,9 +49,24 @@ void RainLedger::advance_to(int32_t today) {
   s_.newest_day = today;
 }
 
-uint32_t RainLedger::on_reading(uint16_t boot_id, uint32_t tips, int32_t today) {
-  advance_to(today);
+bool RainLedger::has_day() const { return s_.newest_day != kNoDay; }
 
+uint32_t RainLedger::on_reading(uint16_t boot_id, uint32_t tips, int32_t today) {
+  const uint32_t delta = take_delta(boot_id, tips);
+  credit(today, delta);
+  return delta;
+}
+
+void RainLedger::credit(int32_t today, uint32_t tips) {
+  advance_to(today);
+  if (tips == 0) return;
+  // Record against the newest day (equals today unless the clock went back).
+  uint16_t& cell = s_.tips[slot(s_.newest_day)];
+  const uint32_t sum = static_cast<uint32_t>(cell) + tips;
+  cell = static_cast<uint16_t>(sum > 0xFFFF ? 0xFFFF : sum);
+}
+
+uint32_t RainLedger::take_delta(uint16_t boot_id, uint32_t tips) {
   uint32_t delta = 0;
   if (!s_.have_last) {
     // First reading ever: no baseline yet, so just record it.
@@ -72,13 +87,6 @@ uint32_t RainLedger::on_reading(uint16_t boot_id, uint32_t tips, int32_t today) 
   s_.have_last = 1;
   s_.last_boot_id = boot_id;
   s_.last_tips = tips;
-
-  if (delta > 0) {
-    // Record against the newest day (equals today unless the clock went back).
-    uint16_t& cell = s_.tips[slot(s_.newest_day)];
-    const uint32_t sum = static_cast<uint32_t>(cell) + delta;
-    cell = static_cast<uint16_t>(sum > 0xFFFF ? 0xFFFF : sum);
-  }
   return delta;
 }
 

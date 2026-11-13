@@ -43,6 +43,15 @@ class RainLedger {
   // Returns the number of tips added.
   uint32_t on_reading(uint16_t boot_id, uint32_t tips, int32_t today);
 
+  // The two halves of on_reading, for when the clock isn't set yet:
+  // take_delta() updates the baseline and returns new tips without crediting
+  // them to a day; credit() adds tips to a day later.
+  uint32_t take_delta(uint16_t boot_id, uint32_t tips);
+  void credit(int32_t today, uint32_t tips);
+
+  bool has_day() const;
+  int32_t newest_day() const { return s_.newest_day; }
+
   // Tips on one day (0 if it's outside the kept window).
   uint32_t day_tips(int32_t day) const;
 

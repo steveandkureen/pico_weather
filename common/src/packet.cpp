@@ -65,11 +65,15 @@ size_t encode(const OutdoorReading& r, uint8_t* out, size_t cap) {
   w.u16(static_cast<uint16_t>(r.temp_c_x100));
   w.u16(r.humidity_x100);
   w.u32(r.pressure_pa);
-  w.u16(r.wind_avg_mps_x100);
-  w.u16(r.wind_gust_mps_x100);
-  w.u16(r.wind_dir_deg);
+  w.u16(r.wind_pulses);
+  w.u16(r.wind_interval_ms);
+  w.u16(r.gust_pulses_3s);
+  w.u16(r.wind_dir_raw_deg);
   w.u32(r.rain_tips);
   w.u16(r.battery_mv);
+  w.u16(r.solar_mv);
+  w.u8(r.max_loop_ms);
+  w.u8(r.sensor_errors);
   w.u16(crc16_ccitt(out, kPacketSize - 2));
   return kPacketSize;
 }
@@ -91,11 +95,15 @@ bool decode(const uint8_t* in, size_t len, OutdoorReading* out) {
   r.temp_c_x100 = static_cast<int16_t>(rd.u16());
   r.humidity_x100 = rd.u16();
   r.pressure_pa = rd.u32();
-  r.wind_avg_mps_x100 = rd.u16();
-  r.wind_gust_mps_x100 = rd.u16();
-  r.wind_dir_deg = rd.u16();
+  r.wind_pulses = rd.u16();
+  r.wind_interval_ms = rd.u16();
+  r.gust_pulses_3s = rd.u16();
+  r.wind_dir_raw_deg = rd.u16();
   r.rain_tips = rd.u32();
   r.battery_mv = rd.u16();
+  r.solar_mv = rd.u16();
+  r.max_loop_ms = rd.u8();
+  r.sensor_errors = rd.u8();
   const uint16_t sent_crc = rd.u16();
   if (sent_crc != crc16_ccitt(in, kPacketSize - 2)) return false;
 
