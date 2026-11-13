@@ -51,9 +51,9 @@ Proposed parts list (✅ = confirmed, 🔶 = proposed, waiting for your OK):
 
 Other decisions still open:
 - [x] **Region / frequency:** US, 915 MHz ISM band (902–928 MHz). Run the module in that band only.
-- [ ] **Display units:** US units by default (°F / inHg / mph / inches); confirm.
-- [ ] **Rain year:** calendar year (Jan 1) vs water year (Oct 1).
-- [ ] **Station elevation:** needed to correct pressure to sea level.
+- [x] **Display units:** set on the `/config` page (see "Units" in Step 2); US units are the default.
+- [x] **Rain year:** calendar year, resets Jan 1 (already how `RainLedger::year_tips` works).
+- [x] **Station elevation:** entered on the `/config` page (feet or meters, following the units setting) and saved in flash. Used to show sea-level pressure, the number weather reports use; the page can also show the raw station pressure. Until it's set, the page shows station pressure labeled "uncorrected".
 - [ ] **Power:** solar vs wired (see above).
 - [ ] **Distance and obstacles** between the station and the house: decides antenna and LoRa settings.
 
@@ -79,7 +79,8 @@ Rules: keep I2C sensors on their own bus away from the radio's SPI bus; the wind
 
 Everything that doesn't depend on the parts list.
 
-- [ ] **Settings in flash.** One settings record: WiFi name and password, timezone, units, station elevation, rain per tip, anemometer factor, vane north offset. Stored like the rain ledger: two copies, each with a sequence number and CRC, so a power cut while saving can never brick the settings.
+- [ ] **Forecast** from Open-Meteo (see "Forecast" below).
+- [ ] **Settings in flash.** One settings record: WiFi name and password, timezone, units, station elevation, latitude/longitude, rain per tip, anemometer factor, vane north offset. Stored like the rain ledger: two copies, each with a sequence number and CRC, so a power cut while saving can never brick the settings.
 - [ ] **WiFi setup with no code changes** (see "WiFi setup" below).
 - [ ] **Flash storage for the rain ledger.** Two copies, each with a sequence number and CRC; boot loads the newest valid one. Save after rain changes (at most every 10 minutes) and always at midnight. Writes spread across flash blocks.
 - [ ] **Clock.** Get the time from an NTP server over WiFi, with a POSIX TZ string for local midnight and DST. Show "time not set" until the first sync; re-sync every few hours.
@@ -87,6 +88,84 @@ Everything that doesn't depend on the parts list.
 - [ ] **iPad page.** Plain HTML/CSS and ES5 JavaScript (iOS 10 Safari), fetching data with XHR every 10 seconds. Large readable numbers, a daily rain bar chart, and a "last update N s ago" line that turns red when data is stale.
 - [ ] **Health line.** Uptime, reboot count and reason, WiFi reconnects, packets received and rejected, last packet time.
 - [ ] Host tests for the flash format: a save that cuts off halfway must still load the previous good copy.
+
+### Local name: `http://weather.local`
+
+The base station announces itself as **`weather.local`** using mDNS (Bonjour), which is how printers and Apple TVs get found. (`local.weather` wouldn't work: `.local` has to be at the end.)
+
+- **lwIP's built-in mDNS responder** (`LWIP_MDNS_RESPONDER`, part of the SDK's lwIP) also advertises an `_http._tcp` service, so it shows up in Bonjour browsers.
+- **Works natively** on the iPad 4 (iOS 10), iPhones, Macs, Windows 10+ and Linux. Android support is patchy on older phones; use the IP address there.
+- **DHCP hostname is set to `weather` too**, so many routers also let you reach it as `weather`, `weather.lan` or `weather.home`, and it's easy to spot in the router's device list.
+- **The hostname is a setting on `/config`** (default `weather`; letters, digits and `-` only), in case of a clash or a second station.
+- **Re-announced** every time WiFi reconnects or the IP changes, so the name keeps working after a router reboot.
+- **Fallback:** the setup page shows the IP address after saving WiFi, and so does `/config`. Recommended: a DHCP reservation in the router so the IP never changes either.
+- **On the iPad:** open `http://weather.local` in Safari → Share → Add to Home Screen, for a full-screen icon.
+
+### iPad page design
+
+Mockups: claude.ai Design canvas "Weather Station Display" (owner's private link), four 1024×768 landscape options. 1024×768 is the iPad 4's CSS viewport, so the sizes carry over directly.
+
+| Option | Look | Notable |
+|---|---|---|
+| A · Dark panels | Dark cards, big outside temp, compass dial for wind | Today high/low: actual vs forecast side by side; 5-day strip |
+| B · Sky band | Dark blue left band, light cards right | 5-day list with low→high range bars |
+| C · Desert, open type | Warm light background, very large temp, no cards | Today's range bar (actual vs forecast vs now); vertical range bars per day |
+| D · Station vs forecast | Dark, two columns: station data left, forecast right | Today's forecast card; **scrollable 10-day list** |
+
+**Chosen: all four, selectable on the `/config` page.** A "Layout" setting (A/B/C/D, plus an optional **Auto** that uses a light layout by day and a dark one at night, switching at sunrise/sunset from Open-Meteo's `daily=sunrise,sunset`).
+
+How it's built, so four layouts don't mean four times the bugs:
+- **One shared script** does everything except drawing: fetching `/data.json` every 10 s, unit conversion, number formatting, staleness colors, forecast icon mapping. Written and tested once.
+- **Each layout is only HTML + CSS** with named slots (`data-f="out_temp"`, `data-f="rain_month"`, …). The shared script fills whatever slots a layout has, so a layout can't break the data logic.
+- **Small:** each layout is ~12 KB, ~3 KB gzipped. All four plus the script fit in about 20 KB of the Pico 2 W's 4 MB flash. Served pre-compressed, so the Pico does no work per request.
+- `/` serves the layout picked in settings. `/?layout=c` overrides it for one visit, handy for comparing them on the iPad.
+- The page checks `/data.json` for a layout change and reloads itself, so changing the setting from a phone switches the wall iPad within 10 s.
+- **Build order:** one layout first, completely (data, staleness, units, iOS 10 testing), then port the other three onto the same slots.
+
+What all four need from the firmware (added to Step 2):
+- **Today's actual outdoor high and low.** The base station tracks min/max outdoor temperature since local midnight, saved to flash with the rain ledger so a reboot doesn't reset them.
+- **Current condition text and icon** ("Sunny") come from the forecast's `current.weather_code`, since the station can't see clouds.
+- **"Updated 2:41 PM"** = time of the last outdoor packet; turns amber when stale (no packet for 5 min) and red at 15 min.
+- Option D's 10-day list → request `forecast_days=11` (today + 10), ~1.7 KB.
+
+**iOS 10 Safari rules when turning the mockups into the real page:**
+- **No flexbox `gap`** (it only arrived in Safari 14.1). Use margins on children instead, or the layout collapses on the iPad.
+- ES5 JavaScript only: no `??`, `=>`, `let`/`const`, template strings or `fetch`. Use `var`, `function` and `XMLHttpRequest`.
+- `-webkit-` prefixes for flex (`display: -webkit-flex`) to be safe.
+- Inline SVG icons are fine; Helvetica Neue (including the thin weights) is built into iOS.
+- No web fonts or external files: the whole page is one HTML file served by the Pico.
+- The health line (uptime, reboots, packet counts) and the daily rain chart from earlier in this plan move to the `/config` page, keeping the main screen as in the mockup.
+
+### Forecast (Open-Meteo)
+
+The base station fetches a local forecast from **[Open-Meteo](https://open-meteo.com)**: free for non-commercial use, no API key, open-source server (can be self-hosted later if the public one ever goes away).
+
+- **Request:** `http://api.open-meteo.com/v1/forecast?latitude=..&longitude=..&current=weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&forecast_days=5&timezone=auto`. Tested 2026-11-12: about 900 bytes for 5 days.
+- **Plain HTTP, not HTTPS:** the data is public and read-only. Skipping TLS saves ~40 KB of RAM and means there's no certificate store to expire in five years. If Open-Meteo ever drops HTTP, add mbedTLS (already in the SDK) then.
+- **Schedule:** every 30 minutes, with a randomized offset. On failure, retry after 5, 10, then 20 minutes, and never more often than that.
+- **Isolated from the core:**
+  - Every step (DNS, connect, read) has a short time limit.
+  - The response is read into a fixed 4 KB buffer; anything larger is thrown away, not reallocated.
+  - Only the fields we need are parsed, with range checks.
+  - A forecast failure can never block LoRa, rain or the web page. It shows "Forecast updated 2 h ago" and turns grey when stale (more than 3 h).
+- **Not saved to flash:** after a reboot the page shows "Forecast loading…" until the first fetch.
+- **On the page:** today's high/low and a condition icon, plus a 5-day strip (icon, high/low, chance of rain, expected rain). Converted to your units like everything else; WMO weather codes map to a small set of icons built into the firmware.
+- **Config page:** latitude and longitude (decimal). A "fill from forecast" button can pre-fill **elevation** from Open-Meteo's answer, and suggest the timezone it reports.
+
+### Units
+
+Set on the `/config` page, one choice per measurement, saved in flash with the other settings:
+
+| Measurement | Choices | Default |
+|---|---|---|
+| Temperature | °F, °C | °F |
+| Pressure | inHg, hPa (mbar), mmHg | inHg |
+| Wind speed | mph, km/h, m/s, knots | mph |
+| Rain | inches, mm | inches |
+
+The config page also has **US** and **Metric** buttons that set all four at once.
+
+How it works: the firmware stores and sends everything in fixed metric units (°C×100, Pa, m/s×100, rain tips plus mm per tip). `/data.json` includes the chosen units, and the iPad page converts for display. The firmware has no unit math to get wrong, and the rain history is unaffected when units change.
 
 ### WiFi setup
 
