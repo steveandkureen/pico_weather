@@ -11,13 +11,17 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../common ${CMAKE_BINARY_DIR}/common)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../pico_drivers ${CMAKE_BINARY_DIR}/pico_drivers)
 
 add_executable(wx_outdoor src/main.cpp)
+target_include_directories(wx_outdoor PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src)
 target_compile_options(wx_outdoor PRIVATE -Wall -Wextra)
 target_link_libraries(wx_outdoor PRIVATE
   wx_common
+  wx_pico_drivers
   pico_stdlib
   pico_rand
+  hardware_adc
   hardware_watchdog
 )
 pico_enable_stdio_usb(wx_outdoor 1)

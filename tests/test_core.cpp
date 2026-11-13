@@ -207,3 +207,28 @@ void run_core_tests() {
   test_rain_save_and_load();
   test_rain_take_delta_then_credit();
 }
+
+// ---- health monitor (appended) ----
+#include "wx/health.h"
+
+void run_health_tests() {
+  wx::HealthMonitor h;
+  int a = h.add("radio", 1000);
+  int b = h.add("sensor", 5000);
+  CHECK(h.all_ok(0));
+  h.report(a, 1, 0);
+  h.report(b, 1, 0);
+  h.report(a, 2, 900);
+  CHECK(h.all_ok(900));
+  h.report(a, 2, 2500);  // radio stopped moving at t=900
+  CHECK(!h.all_ok(2500));
+  CHECK_STR(h.stalled(2500), "radio");
+  h.report(a, 3, 2600);
+  CHECK(h.all_ok(2600));
+  CHECK(!h.all_ok(6000));  // sensor last moved at 0
+  h.note_loop(12);
+  h.note_loop(4);
+  CHECK_EQ(h.take_max_loop_ms(), 12u);
+  CHECK_EQ(h.take_max_loop_ms(), 0u);
+  CHECK_EQ(h.max_loop_ms(), 12u);
+}

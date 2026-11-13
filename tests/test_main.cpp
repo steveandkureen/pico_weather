@@ -12,6 +12,7 @@ int main() {
   run_radio_tests();
   run_net_tests();
   run_station_tests();
+  run_health_tests();
 
   if (g_failures == 0) {
     std::printf("all tests passed\n");

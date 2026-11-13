@@ -5,6 +5,7 @@ add_library(wx_common STATIC
   ${CMAKE_CURRENT_LIST_DIR}/src/e220.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/flash_store.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/forecast.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/src/health.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/http.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/json.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/packet.cpp
