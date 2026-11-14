@@ -3,6 +3,7 @@
 
 #include "test_util.h"
 #include "wx/bme280.h"
+#include "wx/health.h"
 #include "wx/wind.h"
 
 namespace {
@@ -142,6 +143,28 @@ void test_bme280_driver_reads() {
   CHECK_EQ(bus.regs[0xF4] & 0x03, 0x01);
 }
 
+// Sensor not wired at all: the driver keeps retrying with backoff (up to 60 s)
+// but must keep reporting progress so the watchdog gate never resets the board.
+void test_bme280_absent_keeps_watchdog_fed() {
+  FakeBus bus;
+  bus.present = false;
+  wx::Bme280 s(bus, 0x76, 30000);
+  wx::HealthMonitor h;
+  const int t = h.add("bme280", 15000);
+  uint32_t now = 0;
+  for (int i = 0; i < 5 * 60 * 1000; i += 10, now += 10) {
+    s.poll(now);
+    h.report(t, s.progress(), now);
+    CHECK(h.all_ok(now));
+    if (!h.all_ok(now)) break;
+  }
+  CHECK(!s.reading().valid);
+  // Plugged in later: it is found on the next probe.
+  bus.present = true;
+  run(s, now, 61000);
+  CHECK(s.reading().valid);
+}
+
 void test_bme280_driver_recovers() {
   FakeBus bus;
   wx::Bme280 s(bus, 0x76, 1000);
@@ -234,6 +257,7 @@ void run_sensor_tests() {
   test_bme280_calib_parse();
   test_bme280_driver_reads();
   test_bme280_driver_recovers();
+  test_bme280_absent_keeps_watchdog_fed();
   test_bme280_bmp280_has_no_humidity();
   test_bme280_rejects_out_of_range();
   test_wind_gust_and_average();

@@ -102,11 +102,14 @@ void Bme280::fail(uint32_t now_ms) {
 }
 
 void Bme280::poll(uint32_t now_ms) {
+  // Count every poll, including while backing off from a missing sensor; the
+  // watchdog gate only needs to know that poll() keeps returning. (Backoff
+  // reaches 60 s, longer than the 15 s stall limit.)
+  ++progress_;
   switch (state_) {
     case State::kBackoff:
       if (!reached(now_ms, wait_until_ms_)) return;
       state_ = State::kProbe;
-      ++progress_;
       return;
 
     case State::kProbe: {
@@ -123,14 +126,12 @@ void Bme280::poll(uint32_t now_ms) {
       }
       wait_until_ms_ = now_ms + kResetMs;
       state_ = State::kResetWait;
-      ++progress_;
       return;
     }
 
     case State::kResetWait:
       if (!reached(now_ms, wait_until_ms_)) return;
       state_ = State::kCalib;
-      ++progress_;
       return;
 
     case State::kCalib: {
@@ -150,7 +151,6 @@ void Bme280::poll(uint32_t now_ms) {
         return;
       }
       state_ = State::kConfigure;
-      ++progress_;
       return;
     }
 
@@ -163,11 +163,9 @@ void Bme280::poll(uint32_t now_ms) {
       }
       state_ = State::kIdle;
       next_ms_valid_ = false;
-      ++progress_;
       return;
 
     case State::kIdle:
-      ++progress_;
       if (next_ms_valid_ && !reached(now_ms, next_ms_)) return;
       if (!write_reg(kRegCtrlMeas, kCtrlMeasForced)) {
         fail(now_ms);
@@ -210,7 +208,6 @@ void Bme280::poll(uint32_t now_ms) {
       next_ms_ = now_ms + interval_ms_;
       next_ms_valid_ = true;
       state_ = State::kIdle;
-      ++progress_;
       return;
     }
   }
