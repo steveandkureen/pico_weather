@@ -82,6 +82,13 @@ void test_extremes_and_day_rollover() {
 
 void test_problems() {
   wx::Station s;
+  {
+    // Defaults include a home location; clear it to check the warning.
+    wx::Settings st;
+    wx::settings_defaults(&st);
+    st.have_location = 0;
+    s.set_settings(st);
+  }
   // Fresh boot: nothing reported during the grace period.
   CHECK(!has_problem(s, 1000, kSec, wx::Problem::kOutdoorNone));
   CHECK(has_problem(s, 200000, 200 * kSec, wx::Problem::kOutdoorNone));

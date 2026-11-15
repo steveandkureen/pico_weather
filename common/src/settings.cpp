@@ -22,8 +22,14 @@ void settings_defaults(Settings* s) {
   std::memset(s, 0, sizeof(*s));
   s->version = 1;
   std::strcpy(s->hostname, "weather");
-  // US Mountain time as a placeholder; set on /config (or "Fill from forecast").
-  std::strcpy(s->tz, "MST7MDT,M3.2.0,M11.1.0");
+  // Home location (ZIP 85747, Tucson): Arizona time, no daylight saving.
+  // All of these can be changed on /config.
+  std::strcpy(s->tz, "MST7");
+  s->have_location = 1;
+  s->lat_e5 = 3213888;    // 32.138884
+  s->lon_e5 = -11076765;  // -110.767652
+  s->have_elevation = 1;
+  s->elevation_cm = 88500;  // 885 m / 2904 ft at those coordinates
   s->temp_unit = TempUnit::kF;
   s->press_unit = PressUnit::kInHg;
   s->wind_unit = WindUnit::kMph;
