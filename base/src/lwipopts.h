@@ -11,7 +11,7 @@
 #define MEM_SIZE 16000
 #define MEMP_NUM_TCP_SEG 32
 #define MEMP_NUM_ARP_QUEUE 10
-#define MEMP_NUM_TCP_PCB 8          // 4 web clients + forecast + spares (TIME_WAIT)
+#define MEMP_NUM_TCP_PCB 12         // 6 web clients + forecast + spares (TIME_WAIT)
 #define MEMP_NUM_TCP_PCB_LISTEN 2
 #define MEMP_NUM_UDP_PCB 10         // DHCP client, DNS client, SNTP, mDNS, setup DHCP + DNS servers
 #define MEMP_NUM_SYS_TIMEOUT (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 8)

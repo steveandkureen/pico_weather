@@ -1,5 +1,7 @@
 #include "app.h"
 
+#include "crashlog.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -122,19 +124,26 @@ void App::init() {
   watchdog_boot_ = watchdog_enable_caused_reboot();
   station_.set_base_restarted_by_watchdog(watchdog_boot_);
 
+  crashlog::crumb(10);
   load_storage();
 
+  crashlog::crumb(11);
   gpio_init(board::kSetupButtonPin);
   gpio_set_dir(board::kSetupButtonPin, GPIO_IN);
   gpio_pull_up(board::kSetupButtonPin);
 
+  crashlog::crumb(12);
   i2c_.init();
+  crashlog::crumb(13);
   radio_port_.init();
+  crashlog::crumb(14);
   radio_.start(now_ms());
   last_packet_ms_ = now_ms();
   next_radio_recovery_ms_ = last_packet_ms_ + kRadioSilenceMs;
 
+  crashlog::crumb(15);
   wifi_.begin(settings_.hostname, now_ms());
+  crashlog::crumb(16);
   station_.set_settings(settings_);
   if (kDevWifi) {
     std::printf("wifi: DEV BUILD, using '%s'\n", WX_DEV_WIFI_SSID);
@@ -143,9 +152,12 @@ void App::init() {
     wifi_.set_network(settings_.wifi_ssid, settings_.wifi_pass, now_ms());
   }
 
+  crashlog::crumb(18);
   if (!http::start(this, 80)) std::printf("http: could not start server\n");
+  crashlog::crumb(19);
   mdns_resp_init();
 
+  crashlog::crumb(20);
   t_radio_ = health_.add("radio", 15000);
   t_indoor_ = health_.add("indoor", 15000);
   t_net_ = health_.add("network", 15000);
@@ -220,10 +232,14 @@ void App::poll_button(uint32_t now) {
 }
 
 void App::poll_network(uint32_t now) {
+  crashlog::crumb(203);
   cyw43_arch_poll();
+  crashlog::crumb(204);
   wifi_.poll(now);
+  crashlog::crumb(205);
   http::poll(now);
 
+  crashlog::crumb(206);
   if (wifi_.take_link_up_event()) {
     if (!mdns_added_) {
       mdns_resp_add_netif(sta_netif(), settings_.hostname);
@@ -242,6 +258,7 @@ void App::poll_network(uint32_t now) {
     forecast_.request_now();
   }
 
+  crashlog::crumb(207);
   wx::Forecast f;
   if (forecast_.poll(now, wifi_.sta_up(), settings_.have_location, settings_.lat_e5, settings_.lon_e5, &f)) {
     station_.on_forecast(f, now);
@@ -263,11 +280,17 @@ void App::loop_once() {
   const uint32_t start = now_ms();
   const uint32_t now = start;
 
+  crashlog::crumb(100);
   poll_radio(now);
+  crashlog::crumb(101);
   poll_indoor(now);
+  crashlog::crumb(102);
   poll_network(now);
+  crashlog::crumb(107);
   poll_button(now);
+  crashlog::crumb(108);
   station_.tick(now, time_us_64());
+  crashlog::crumb(109);
   update_led(now);
 
   if (reboot_pending_ && reached(now, reboot_at_)) {
@@ -279,6 +302,7 @@ void App::loop_once() {
     for (;;) tight_loop_contents();
   }
 
+  crashlog::crumb(110);
   health_.report(t_radio_, radio_.progress(), now);
   health_.report(t_indoor_, indoor_.progress(), now);
   health_.report(t_net_, wifi_.progress(), now);
@@ -384,6 +408,39 @@ void App::handle(const wx::HttpRequest& req, uint32_t local_ip, HttpResponse& r)
       return;
     }
     r.dyn_len = std::strlen(r.dyn);
+    return;
+  }
+
+  if (get && std::strcmp(p, "/api/http") == 0) {
+    r.content_type = "application/json";
+    int n = http::debug_json(r.dyn, r.dyn_cap);
+    if (n > 1 && static_cast<size_t>(n) < r.dyn_cap) {
+      r.dyn[n - 1] = ',';  // replace '}' and append the crash report
+      const int m = std::snprintf(r.dyn + n, r.dyn_cap - n, "\"crash\":");
+      const int k = crashlog::to_json(r.dyn + n + m, static_cast<unsigned>(r.dyn_cap - n - m));
+      n += m + k;
+      if (static_cast<size_t>(n) < r.dyn_cap) {
+        n += std::snprintf(r.dyn + n, r.dyn_cap - n,
+                           ",\"indoor\":{\"addr\":\"0x%02x\",\"chip\":\"0x%02x\",\"errors\":%lu,\"valid\":%s}",
+                           indoor_.addr(), indoor_.chip_id(), (unsigned long)indoor_.errors(),
+                           indoor_.reading().valid ? "true" : "false");
+      }
+      if (static_cast<size_t>(n) + 1 < r.dyn_cap) r.dyn[n++] = '}';
+    }
+    r.dyn_len = n > 0 ? static_cast<size_t>(n) : 0;
+    return;
+  }
+
+  if (get && std::strcmp(p, "/api/i2c") == 0) {
+    r.content_type = "application/json";
+    uint8_t found[16];
+    const int k = i2c_.scan(found, 16);
+    int n = std::snprintf(r.dyn, r.dyn_cap, "{\"sda_high\":%s,\"scl_high\":%s,\"found\":[",
+                          i2c_.sda_high() ? "true" : "false", i2c_.scl_high() ? "true" : "false");
+    for (int i = 0; i < k && n > 0 && static_cast<size_t>(n) < r.dyn_cap; ++i)
+      n += std::snprintf(r.dyn + n, r.dyn_cap - n, "%s\"0x%02x\"", i ? "," : "", found[i]);
+    if (n > 0 && static_cast<size_t>(n) < r.dyn_cap) n += std::snprintf(r.dyn + n, r.dyn_cap - n, "]}");
+    r.dyn_len = n > 0 && static_cast<size_t>(n) < r.dyn_cap ? static_cast<size_t>(n) : 0;
     return;
   }
 

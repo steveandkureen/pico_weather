@@ -19,6 +19,12 @@ class PicoI2cBus : public wx::I2cBus {
 
   uint32_t recoveries() const { return recoveries_; }
 
+  // Diagnostics: current line levels (true = high, as an idle bus should be),
+  // and the addresses that ACK a 1-byte read. The scan blocks up to ~0.25 s.
+  bool sda_high() const;
+  bool scl_high() const;
+  int scan(uint8_t* found, int cap);
+
  private:
   uint32_t timeout_us(size_t bytes) const;
 

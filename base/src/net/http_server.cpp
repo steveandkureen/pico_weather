@@ -27,6 +27,7 @@ struct Conn {
   size_t body_len = 0;
   size_t body_sent = 0;
   bool body_copy = false;
+  bool peer_closed = false;  // client sent FIN while we were still writing
   char tx[kTxSize];
 };
 
@@ -35,6 +36,13 @@ HttpHandler* g_handler = nullptr;
 tcp_pcb* g_listen = nullptr;
 uint32_t g_requests = 0;
 uint32_t g_rejected = 0;
+uint32_t g_evicted = 0;
+uint32_t g_timeouts = 0;
+uint32_t g_null_arg = 0;
+uint32_t g_errs = 0;
+uint32_t g_peer_closed = 0;
+uint32_t g_err_400 = 0;
+uint32_t g_err_413 = 0;
 
 uint32_t now_ms() { return to_ms_since_boot(get_absolute_time()); }
 
@@ -112,9 +120,18 @@ void pump(Conn* c) {
   }
   tcp_output(pcb);
   if (c->header_sent == c->header_len && c->body_sent == c->body_len) {
-    // Everything is queued. Static bodies live in flash, dynamic ones were
-    // copied, so closing now is safe: lwIP finishes sending, then sends FIN.
-    close_conn(c);
+    // Everything is queued (static bodies live in flash, dynamic ones were
+    // copied). Close only our sending side: lwIP sends FIN after the data.
+    // A full close here would make lwIP answer any late or retransmitted
+    // client packet with RST, and a browser that gets RST throws away the
+    // response it already has ("no response" on the iPad). So keep reading
+    // and discarding until the client closes too, or kLingerMs passes.
+    if (c->peer_closed || tcp_shutdown(pcb, 0, 1) != ERR_OK) {
+      close_conn(c);
+      return;
+    }
+    c->state = State::kClosing;
+    c->last_ms = now_ms();
   }
 }
 
@@ -162,14 +179,19 @@ void respond_error(Conn* c, int status) {
 err_t on_recv(void* arg, tcp_pcb* pcb, pbuf* p, err_t err) {
   Conn* c = static_cast<Conn*>(arg);
   if (c == nullptr) {
+    ++g_null_arg;
     if (p) pbuf_free(p);
     tcp_abort(pcb);
     return ERR_ABRT;
   }
   if (p == nullptr || err != ERR_OK) {  // peer closed
+    ++g_peer_closed;
     if (p) pbuf_free(p);
-    if (c->state == State::kWriting) return ERR_OK;  // let the response finish
-    close_conn(c);
+    if (c->state == State::kWriting) {  // let the response finish
+      c->peer_closed = true;
+      return ERR_OK;
+    }
+    close_conn(c);  // both sides done (kClosing) or client gave up (kReading)
     return ERR_OK;
   }
   c->last_ms = now_ms();
@@ -192,9 +214,11 @@ err_t on_recv(void* arg, tcp_pcb* pcb, pbuf* p, err_t err) {
       respond(c, req);
       return ERR_OK;
     case wx::HttpParse::kTooBig:
+      ++g_err_413;
       respond_error(c, 413);
       return ERR_OK;
     case wx::HttpParse::kBad:
+      ++g_err_400;
       respond_error(c, 400);
       return ERR_OK;
   }
@@ -213,6 +237,7 @@ err_t on_sent(void* arg, tcp_pcb*, u16_t) {
 void on_err(void* arg, err_t) {
   // lwIP has already freed the pcb.
   Conn* c = static_cast<Conn*>(arg);
+  ++g_errs;
   if (c != nullptr) release(c);
 }
 
@@ -222,12 +247,29 @@ err_t on_poll(void* arg, tcp_pcb* pcb) {
     tcp_abort(pcb);
     return ERR_ABRT;
   }
+  if (c->state == State::kClosing) {
+    // Response sent; the client never closed its side. Our data is long
+    // delivered by now, so a full close (or abort) loses nothing.
+    if (now_ms() - c->last_ms > kLingerMs) close_conn(c);
+    return ERR_OK;
+  }
   if (now_ms() - c->last_ms > kTimeoutMs) {
+    ++g_timeouts;
     abort_conn(c);
     return ERR_ABRT;
   }
   pump(c);
   return ERR_OK;
+}
+
+// Oldest connection in `state` (with `empty_only`: that hasn't sent anything).
+Conn* oldest(State state, bool empty_only) {
+  Conn* best = nullptr;
+  for (Conn& s : g_conns) {
+    if (s.state != state || (empty_only && s.rx_len != 0)) continue;
+    if (best == nullptr || static_cast<int32_t>(s.last_ms - best->last_ms) < 0) best = &s;
+  }
+  return best;
 }
 
 err_t on_accept(void*, tcp_pcb* pcb, err_t err) {
@@ -240,6 +282,18 @@ err_t on_accept(void*, tcp_pcb* pcb, err_t err) {
     }
   }
   if (c == nullptr) {
+    // All busy. Make room rather than refuse a real request, taking the
+    // oldest of: (1) a slot only lingering after its response was sent, else
+    // (2) a browser's spare preconnect that hasn't sent a byte yet.
+    c = oldest(State::kClosing, false);
+    if (c != nullptr) {
+      close_conn(c);
+    } else if ((c = oldest(State::kReading, true)) != nullptr) {
+      abort_conn(c);
+    }
+    if (c != nullptr) ++g_evicted;
+  }
+  if (c == nullptr) {
     ++g_rejected;
     tcp_abort(pcb);
     return ERR_ABRT;
@@ -247,6 +301,7 @@ err_t on_accept(void*, tcp_pcb* pcb, err_t err) {
   c->state = State::kReading;
   c->pcb = pcb;
   c->rx_len = 0;
+  c->peer_closed = false;
   c->last_ms = now_ms();
   tcp_setprio(pcb, TCP_PRIO_MIN);
   tcp_arg(pcb, c);
@@ -285,6 +340,20 @@ void poll(uint32_t now) {
 
 uint32_t requests() { return g_requests; }
 uint32_t rejected() { return g_rejected; }
+
+int debug_json(char* out, size_t cap) {
+  char states[kSlots + 1];
+  for (int i = 0; i < kSlots; ++i) states[i] = "FRWC"[static_cast<int>(g_conns[i].state)];
+  states[kSlots] = '\0';
+  return std::snprintf(out, cap,
+                       "{\"requests\":%lu,\"rejected\":%lu,\"evicted\":%lu,\"timeouts\":%lu,"
+                       "\"null_arg\":%lu,\"lwip_err\":%lu,\"peer_closed\":%lu,\"e400\":%lu,"
+                       "\"e413\":%lu,\"slots\":\"%s\"}",
+                       (unsigned long)g_requests, (unsigned long)g_rejected, (unsigned long)g_evicted,
+                       (unsigned long)g_timeouts, (unsigned long)g_null_arg, (unsigned long)g_errs,
+                       (unsigned long)g_peer_closed, (unsigned long)g_err_400, (unsigned long)g_err_413,
+                       states);
+}
 int active() {
   int n = 0;
   for (const Conn& c : g_conns) n += c.state != State::kFree;

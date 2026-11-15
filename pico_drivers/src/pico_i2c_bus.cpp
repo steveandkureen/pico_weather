@@ -32,6 +32,18 @@ bool PicoI2cBus::read_reg(uint8_t addr, uint8_t reg, uint8_t* data, size_t n) {
   return r == static_cast<int>(n);
 }
 
+bool PicoI2cBus::sda_high() const { return gpio_get(sda_); }
+bool PicoI2cBus::scl_high() const { return gpio_get(scl_); }
+
+int PicoI2cBus::scan(uint8_t* found, int cap) {
+  int n = 0;
+  for (uint8_t a = 0x08; a < 0x78; ++a) {
+    uint8_t b;
+    if (i2c_read_timeout_us(i2c_, a, &b, 1, false, 2000) == 1 && n < cap) found[n++] = a;
+  }
+  return n;
+}
+
 void PicoI2cBus::recover() {
   ++recoveries_;
   // Take the pins over as GPIO and clock SCL until a stuck device releases

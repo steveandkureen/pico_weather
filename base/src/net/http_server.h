@@ -39,15 +39,22 @@ class HttpHandler {
 
 namespace http {
 
-constexpr int kSlots = 4;
+// Safari opens spare connections ahead of time and leaves them idle, so when
+// every slot is taken the oldest connection that hasn't sent a byte yet is
+// dropped to make room (see on_accept).
+constexpr int kSlots = 6;
 constexpr size_t kRxSize = 2048;
 constexpr size_t kTxSize = 6144;
 constexpr uint32_t kTimeoutMs = 10000;
+// After a response, how long to keep draining a client that hasn't closed.
+constexpr uint32_t kLingerMs = 3000;
 
 bool start(HttpHandler* handler, uint16_t port);
 void poll(uint32_t now_ms);
 
 uint32_t requests();
+// Connection counters and slot states, as JSON (for /api/http).
+int debug_json(char* out, size_t cap);
 uint32_t rejected();
 int active();
 

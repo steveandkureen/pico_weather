@@ -54,6 +54,7 @@ add_custom_command(
 add_executable(wx_base
   src/main.cpp
   src/app.cpp
+  src/crashlog.cpp
   src/net/forecast_client.cpp
   src/net/http_server.cpp
   src/net/setup_servers.cpp
