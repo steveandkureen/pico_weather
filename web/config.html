@@ -68,6 +68,11 @@ a{color:#1F6FB2}
   <section class="card">
     <h2>Location &amp; time</h2>
     <div class="two">
+      <div><label for="zip">ZIP code</label><input id="zip" inputmode="numeric" maxlength="5" placeholder="80202"></div>
+      <div><label>&nbsp;</label><button type="button" class="alt" id="zipgo" style="width:100%">Look up</button></div>
+    </div>
+    <p class="hint" id="zip-hint">Fills in latitude, longitude, elevation and time zone. Or enter them by hand below.</p>
+    <div class="two">
       <div><label for="lat">Latitude</label><input id="lat" name="lat" inputmode="decimal" placeholder="39.7392"></div>
       <div><label for="lon">Longitude</label><input id="lon" name="lon" inputmode="decimal" placeholder="-104.9903"></div>
     </div>
@@ -298,6 +303,37 @@ a{color:#1F6FB2}
   }
   $('us').onclick = function () { setUnits('F', 'inHg', 'mph', 'in'); };
   $('metric').onclick = function () { setUnits('C', 'hPa', 'km/h', 'mm'); };
+
+  // ZIP lookup runs in this browser, straight to Open-Meteo's geocoder (CORS
+  // allowed), so it needs internet here: it can't work over the setup network.
+  $('zipgo').onclick = function () {
+    var zip = $('zip').value.replace(/\D/g, '');
+    if (zip.length !== 5) { msg('Enter a 5-digit ZIP code.', false); return; }
+    var btn = this;
+    btn.disabled = true;
+    req('GET', 'https://geocoding-api.open-meteo.com/v1/search?count=1&countryCode=US&format=json&name=' + zip, null,
+      function (s, j) {
+        btn.disabled = false;
+        if (s !== 200 || !j) {
+          msg('Lookup failed. This page needs internet (not the setup network).', false);
+          return;
+        }
+        var r = j.results && j.results[0];
+        if (!r) { msg('No match for ZIP ' + zip + '.', false); return; }
+        $('lat').value = r.latitude.toFixed(4);
+        $('lon').value = r.longitude.toFixed(4);
+        if (typeof r.elevation === 'number') {
+          $('elev').value = imperial() ? Math.round(r.elevation / 0.3048) : Math.round(r.elevation);
+        }
+        var tz = TZ_BY_NAME[r.timezone];
+        if (tz) setTz(tz);
+        msg('Found ' + r.name + (r.admin1 ? ', ' + r.admin1 : '') +
+            (tz ? '' : ' (set the time zone by hand)') + '. Press Save.', true);
+      });
+  };
+  $('zip').onkeydown = function (e) {
+    if (e.keyCode === 13) { e.preventDefault(); $('zipgo').onclick.call($('zipgo')); }
+  };
 
   $('fill').onclick = function () {
     if (!data || !data.fc) { msg('No forecast yet. Save a location and wait a minute.', false); return; }
