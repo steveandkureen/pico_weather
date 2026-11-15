@@ -62,6 +62,7 @@ class Bme280 {
   const Reading& reading() const { return r_; }
 
   uint8_t chip_id() const { return chip_id_; }
+  uint8_t addr() const { return addr_; }  // the address that answered (0x76 or 0x77)
   uint32_t errors() const { return errors_; }      // total failed transfers
   uint32_t progress() const { return progress_; }  // bumps on every completed step (watchdog)
 

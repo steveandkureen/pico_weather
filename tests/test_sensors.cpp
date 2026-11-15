@@ -67,6 +67,7 @@ class FakeBus : public wx::I2cBus {
  public:
   uint8_t regs[256] = {};
   bool present = true;
+  uint8_t only_addr = 0;  // nonzero: the chip answers only at this address
   int fail_next = 0;
   int recovers = 0;
 
@@ -102,21 +103,22 @@ class FakeBus : public wx::I2cBus {
     regs[0xFD] = static_cast<uint8_t>(h >> 8);
     regs[0xFE] = static_cast<uint8_t>(h);
   }
-  bool ok() {
+  bool ok(uint8_t addr) {
     if (!present) return false;
+    if (only_addr && addr != only_addr) return false;
     if (fail_next > 0) {
       --fail_next;
       return false;
     }
     return true;
   }
-  bool write(uint8_t, const uint8_t* d, size_t n) override {
-    if (!ok()) return false;
+  bool write(uint8_t a, const uint8_t* d, size_t n) override {
+    if (!ok(a)) return false;
     if (n >= 2) regs[d[0]] = d[1];
     return true;
   }
-  bool read_reg(uint8_t, uint8_t reg, uint8_t* d, size_t n) override {
-    if (!ok()) return false;
+  bool read_reg(uint8_t a, uint8_t reg, uint8_t* d, size_t n) override {
+    if (!ok(a)) return false;
     for (size_t i = 0; i < n; ++i) d[i] = regs[(reg + i) & 0xFF];
     return true;
   }
@@ -250,6 +252,17 @@ void test_wind_conversions() {
   CHECK_EQ(wx::vane_true_deg(10, -20), 350);
 }
 
+// Boards strapped to 0x77 work even though the base station asks for 0x76.
+void test_bme280_finds_alternate_address() {
+  FakeBus bus;
+  bus.only_addr = 0x77;
+  wx::Bme280 s(bus, 0x76, 30000);
+  uint32_t now = 1000;
+  run(s, now, 200);
+  CHECK(s.reading().valid);
+  CHECK_EQ(s.addr(), 0x77);
+}
+
 }  // namespace
 
 void run_sensor_tests() {
@@ -258,6 +271,7 @@ void run_sensor_tests() {
   test_bme280_driver_reads();
   test_bme280_driver_recovers();
   test_bme280_absent_keeps_watchdog_fed();
+  test_bme280_finds_alternate_address();
   test_bme280_bmp280_has_no_humidity();
   test_bme280_rejects_out_of_range();
   test_wind_gust_and_average();

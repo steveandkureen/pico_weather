@@ -113,11 +113,19 @@ void Bme280::poll(uint32_t now_ms) {
       return;
 
     case State::kProbe: {
+      // Boards ship strapped to 0x76 or 0x77 (SDO low/high); accept either and
+      // keep whichever answers.
       uint8_t id = 0;
-      if (!bus_.read_reg(addr_, kRegChipId, &id, 1) ||
-          (id != kChipIdBme280 && id != kChipIdBmp280)) {
-        fail(now_ms);
-        return;
+      auto probe = [&](uint8_t a) {
+        return bus_.read_reg(a, kRegChipId, &id, 1) && (id == kChipIdBme280 || id == kChipIdBmp280);
+      };
+      if (!probe(addr_)) {
+        const uint8_t other = addr_ ^ 0x01;  // 0x76 <-> 0x77
+        if (!probe(other)) {
+          fail(now_ms);
+          return;
+        }
+        addr_ = other;
       }
       chip_id_ = id;
       if (!write_reg(kRegReset, 0xB6)) {
