@@ -43,6 +43,7 @@ uint32_t g_errs = 0;
 uint32_t g_peer_closed = 0;
 uint32_t g_err_400 = 0;
 uint32_t g_err_413 = 0;
+uint32_t g_backstop = 0;
 
 uint32_t now_ms() { return to_ms_since_boot(get_absolute_time()); }
 
@@ -250,10 +251,10 @@ err_t on_poll(void* arg, tcp_pcb* pcb) {
   if (c->state == State::kClosing) {
     // Response sent; the client never closed its side. Our data is long
     // delivered by now, so a full close (or abort) loses nothing.
-    if (now_ms() - c->last_ms > kLingerMs) close_conn(c);
+    if (static_cast<int32_t>(now_ms() - c->last_ms) > static_cast<int32_t>(kLingerMs)) close_conn(c);
     return ERR_OK;
   }
-  if (now_ms() - c->last_ms > kTimeoutMs) {
+  if (static_cast<int32_t>(now_ms() - c->last_ms) > static_cast<int32_t>(kTimeoutMs)) {
     ++g_timeouts;
     abort_conn(c);
     return ERR_ABRT;
@@ -332,9 +333,15 @@ bool start(HttpHandler* handler, uint16_t port) {
 }
 
 void poll(uint32_t now) {
-  // Backstop for connections whose lwIP poll callback never fires.
+  // Backstop for connections whose lwIP poll callback never fires. `now` can
+  // be a little older than last_ms (callbacks during cyw43_arch_poll() stamp
+  // the current time), so compare signed: an unsigned "now - last_ms" wraps
+  // to ~49 days and would abort a live connection mid-request.
   for (Conn& c : g_conns) {
-    if (c.state != State::kFree && now - c.last_ms > 3 * kTimeoutMs) abort_conn(&c);
+    if (c.state != State::kFree && static_cast<int32_t>(now - c.last_ms) > static_cast<int32_t>(3 * kTimeoutMs)) {
+      ++g_backstop;
+      abort_conn(&c);
+    }
   }
 }
 
@@ -348,11 +355,11 @@ int debug_json(char* out, size_t cap) {
   return std::snprintf(out, cap,
                        "{\"requests\":%lu,\"rejected\":%lu,\"evicted\":%lu,\"timeouts\":%lu,"
                        "\"null_arg\":%lu,\"lwip_err\":%lu,\"peer_closed\":%lu,\"e400\":%lu,"
-                       "\"e413\":%lu,\"slots\":\"%s\"}",
+                       "\"e413\":%lu,\"backstop\":%lu,\"slots\":\"%s\"}",
                        (unsigned long)g_requests, (unsigned long)g_rejected, (unsigned long)g_evicted,
                        (unsigned long)g_timeouts, (unsigned long)g_null_arg, (unsigned long)g_errs,
                        (unsigned long)g_peer_closed, (unsigned long)g_err_400, (unsigned long)g_err_413,
-                       states);
+                       (unsigned long)g_backstop, states);
 }
 int active() {
   int n = 0;
