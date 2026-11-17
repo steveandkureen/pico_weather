@@ -43,4 +43,11 @@ constexpr float kVsysDivider = 3.0f;
 // --- On-board ------------------------------------------------------------
 constexpr unsigned kLedPin = 25;  // Pico 2 on-board LED
 
+// --- External "running" LED ------------------------------------------------
+// GP16 -> 330 ohm -> LED anode; LED cathode -> GND (pin 23). Blinked from the
+// main loop, so it stops if the firmware hangs (then the watchdog resets it).
+constexpr unsigned kHeartbeatLedPin = 16;  // GP16, physical pin 21
+constexpr uint32_t kHeartbeatOnMs = 1000;
+constexpr uint32_t kHeartbeatOffMs = 2000;
+
 }  // namespace board

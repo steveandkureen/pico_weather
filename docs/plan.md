@@ -141,6 +141,7 @@ In code: [`outdoor/src/board.h`](../outdoor/src/board.h) and [`base/src/board.h`
 | Solar voltage | GP28 (ADC2) | 34 | panel + via 220k/47k divider | shows whether it's charging |
 | Pico supply | GP29 (ADC3) | internal | VSYS/3 on the Pico board | nothing to wire |
 | Status LED | GP25 | on-board | | brief blink on send for the first 10 min after boot only |
+| Running LED | GP16 | 21 | 330 Ω → LED → GND (pin 23) | 1 s on, 2 s off from the main loop; stops if the firmware hangs |
 | 3.3 V out | 3V3 OUT | 36 | BME280, AS5600, Hall sensors, load switch → LoRa | 300 mA max; peak LoRa TX ~110 mA |
 | Ground | GND | 38 (any GND) | all | |
 | Power in | VSYS | 39 | solar charge controller load output | Pico's onboard regulator accepts 1.8–5.5 V |

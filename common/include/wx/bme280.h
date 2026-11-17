@@ -64,12 +64,14 @@ class Bme280 {
   uint8_t chip_id() const { return chip_id_; }
   uint8_t addr() const { return addr_; }  // the address that answered (0x76 or 0x77)
   uint32_t errors() const { return errors_; }      // total failed transfers
+  // Step that failed last: "probe", "calib", "configure", "start", "read", "range" or "".
+  const char* last_fail_step() const { return last_fail_step_; }
   uint32_t progress() const { return progress_; }  // bumps on every completed step (watchdog)
 
  private:
   enum class State : uint8_t { kProbe, kResetWait, kCalib, kConfigure, kIdle, kMeasuring, kBackoff };
 
-  void fail(uint32_t now_ms);
+  void fail(uint32_t now_ms, const char* step);
   bool write_reg(uint8_t reg, uint8_t val);
 
   I2cBus& bus_;
@@ -84,6 +86,7 @@ class Bme280 {
   Reading r_{};
   uint32_t errors_ = 0;
   uint32_t consecutive_fail_ = 0;
+  const char* last_fail_step_ = "";
   uint32_t progress_ = 0;
 };
 

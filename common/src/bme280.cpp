@@ -89,7 +89,8 @@ bool Bme280::write_reg(uint8_t reg, uint8_t val) {
   return bus_.write(addr_, buf, 2);
 }
 
-void Bme280::fail(uint32_t now_ms) {
+void Bme280::fail(uint32_t now_ms, const char* step) {
+  last_fail_step_ = step;
   ++errors_;
   ++consecutive_fail_;
   if (consecutive_fail_ >= kFailsBeforeInvalid) r_.valid = false;
@@ -122,14 +123,14 @@ void Bme280::poll(uint32_t now_ms) {
       if (!probe(addr_)) {
         const uint8_t other = addr_ ^ 0x01;  // 0x76 <-> 0x77
         if (!probe(other)) {
-          fail(now_ms);
+          fail(now_ms, "probe");
           return;
         }
         addr_ = other;
       }
       chip_id_ = id;
       if (!write_reg(kRegReset, 0xB6)) {
-        fail(now_ms);
+        fail(now_ms, "probe");
         return;
       }
       wait_until_ms_ = now_ms + kResetMs;
@@ -146,16 +147,16 @@ void Bme280::poll(uint32_t now_ms) {
       uint8_t b88[26];
       uint8_t be1[7] = {0};
       if (!bus_.read_reg(addr_, kRegCalib1, b88, sizeof(b88))) {
-        fail(now_ms);
+        fail(now_ms, "calib");
         return;
       }
       if (chip_id_ == kChipIdBme280 && !bus_.read_reg(addr_, kRegCalib2, be1, sizeof(be1))) {
-        fail(now_ms);
+        fail(now_ms, "calib");
         return;
       }
       bme280_parse_calib(b88, be1, &calib_);
       if (calib_.t1 == 0 || calib_.p1 == 0) {  // all-zero calibration = bad read
-        fail(now_ms);
+        fail(now_ms, "calib");
         return;
       }
       state_ = State::kConfigure;
@@ -166,7 +167,7 @@ void Bme280::poll(uint32_t now_ms) {
       // Humidity ×1 (must be written before ctrl_meas), no IIR filter, sleep.
       if ((chip_id_ == kChipIdBme280 && !write_reg(kRegCtrlHum, 0x01)) ||
           !write_reg(kRegConfig, 0x00) || !write_reg(kRegCtrlMeas, 0x00)) {
-        fail(now_ms);
+        fail(now_ms, "configure");
         return;
       }
       state_ = State::kIdle;
@@ -176,7 +177,7 @@ void Bme280::poll(uint32_t now_ms) {
     case State::kIdle:
       if (next_ms_valid_ && !reached(now_ms, next_ms_)) return;
       if (!write_reg(kRegCtrlMeas, kCtrlMeasForced)) {
-        fail(now_ms);
+        fail(now_ms, "start");
         return;
       }
       wait_until_ms_ = now_ms + kMeasureMs;
@@ -187,7 +188,7 @@ void Bme280::poll(uint32_t now_ms) {
       if (!reached(now_ms, wait_until_ms_)) return;
       uint8_t d[8];
       if (!bus_.read_reg(addr_, kRegData, d, sizeof(d))) {
-        fail(now_ms);
+        fail(now_ms, "read");
         return;
       }
       const int32_t adc_p = (d[0] << 12) | (d[1] << 4) | (d[2] >> 4);
@@ -195,14 +196,14 @@ void Bme280::poll(uint32_t now_ms) {
       const int32_t adc_h = (d[6] << 8) | d[7];
       // 0x80000 / 0x8000 = "measurement skipped" (sensor not actually measuring).
       if (adc_t == 0x80000 || adc_p == 0x80000) {
-        fail(now_ms);
+        fail(now_ms, "read");
         return;
       }
       int32_t t_fine = 0;
       const int32_t t = bme280_temp_x100(calib_, adc_t, &t_fine);
       const uint32_t p = bme280_pressure_pa(calib_, adc_p, t_fine);
       if (t < -6000 || t > 8500 || p < 30000 || p > 110000) {  // outside the sensor's range
-        fail(now_ms);
+        fail(now_ms, "range");
         return;
       }
       r_.temp_c_x100 = static_cast<int16_t>(t);

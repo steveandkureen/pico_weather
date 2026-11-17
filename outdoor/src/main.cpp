@@ -107,6 +107,11 @@ int main() {
 
   gpio_init(board::kLedPin);
   gpio_set_dir(board::kLedPin, GPIO_OUT);
+  gpio_init(board::kHeartbeatLedPin);
+  gpio_set_dir(board::kHeartbeatLedPin, GPIO_OUT);
+  gpio_put(board::kHeartbeatLedPin, true);
+  bool heartbeat_on = true;
+  uint32_t heartbeat_at = to_ms_since_boot(get_absolute_time()) + board::kHeartbeatOnMs;
 
   pulses_init();
   adc_init();
@@ -211,15 +216,33 @@ int main() {
       uint8_t buf[wx::kPacketSize];
       if (wx::encode(r, buf, sizeof(buf)) == wx::kPacketSize) {
         const bool sent = g_radio.send(buf, sizeof(buf), now);
-        std::printf("seq=%u tips=%lu wind=%u gust=%u dir=%u t=%d %s\n", r.seq,
+        std::printf("seq=%u tips=%lu wind=%u gust=%u dir=%u t=%d h=%u p=%lu %s\n", r.seq,
                     static_cast<unsigned long>(r.rain_tips), r.wind_pulses, r.gust_pulses_3s,
-                    r.wind_dir_raw_deg, r.temp_c_x100, sent ? "sent" : "radio not ready");
+                    r.wind_dir_raw_deg, r.temp_c_x100, r.humidity_x100,
+                    static_cast<unsigned long>(r.pressure_pa), sent ? "sent" : "radio not ready");
+        if (!b.valid) {
+          // Sensor not answering: show what the bus looks like (scan takes ~0.25 s).
+          uint8_t found[8];
+          const int k = g_i2c.scan(found, 8);
+          std::printf("  bme280: addr=0x%02x chip=0x%02x errors=%lu failed at %s, sda=%s scl=%s found:",
+                      g_bme.addr(), g_bme.chip_id(), static_cast<unsigned long>(g_bme.errors()),
+                      g_bme.last_fail_step(),
+                      g_i2c.sda_high() ? "high" : "LOW", g_i2c.scl_high() ? "high" : "LOW");
+          for (int i = 0; i < k; ++i) std::printf(" 0x%02x", found[i]);
+          std::printf(k ? "\n" : " none\n");
+        }
         if (sent && now < kLedActiveMs) {
           gpio_put(board::kLedPin, true);
           led_on = true;
           led_off_at = now + 50;
         }
       }
+    }
+
+    if (reached(now, heartbeat_at)) {
+      heartbeat_on = !heartbeat_on;
+      gpio_put(board::kHeartbeatLedPin, heartbeat_on);
+      heartbeat_at = now + (heartbeat_on ? board::kHeartbeatOnMs : board::kHeartbeatOffMs);
     }
 
     if (led_on && reached(now, led_off_at)) {
