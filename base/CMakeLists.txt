@@ -41,6 +41,7 @@ set(WEB_FILES
   ${WEB_DIR}/layout_b.html
   ${WEB_DIR}/layout_c.html
   ${WEB_DIR}/layout_d.html
+  ${WEB_DIR}/apple-touch-icon.png
 )
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_custom_command(

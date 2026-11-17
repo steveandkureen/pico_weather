@@ -70,6 +70,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.file("layout_%s.html" % letter.lower(), "text/html; charset=utf-8")
         if url.path == "/app.js":
             return self.file("app.js", "application/javascript")
+        if url.path.startswith("/apple-touch-icon"):
+            return self.file("apple-touch-icon.png", "image/png")
         if url.path == "/config":
             return self.file("config.html", "text/html; charset=utf-8")
         if url.path == "/data.json":

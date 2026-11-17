@@ -1,4 +1,4 @@
-// Web pages compiled into the firmware (gzipped). The .cpp is generated at
+// Web pages compiled into the firmware (text gzipped, images as-is). The .cpp is generated at
 // build time from web/ by tools/embed_web.py.
 #pragma once
 
@@ -11,6 +11,7 @@ struct Asset {
   const char* type;  // Content-Type
   const unsigned char* data;
   unsigned len;
+  bool gzip;  // body is gzip-compressed
 };
 
 extern const Asset kAssets[];

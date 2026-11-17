@@ -344,7 +344,7 @@ void App::serve_asset(const char* name, HttpResponse& r) {
     return;
   }
   r.content_type = a->type;
-  r.gzip = true;
+  r.gzip = a->gzip;
   r.static_body = a->data;
   r.static_len = a->len;
 }
@@ -396,6 +396,12 @@ void App::handle(const wx::HttpRequest& req, uint32_t local_ip, HttpResponse& r)
   }
   if (get && std::strcmp(p, "/app.js") == 0) return serve_asset("app.js", r);
   if (get && std::strcmp(p, "/config") == 0) return serve_asset("config.html", r);
+  // Home-screen icon. iOS asks for these names even without a <link>.
+  if (get && (std::strcmp(p, "/apple-touch-icon.png") == 0 ||
+              std::strcmp(p, "/apple-touch-icon-precomposed.png") == 0 ||
+              std::strncmp(p, "/apple-touch-icon-", 18) == 0)) {
+    return serve_asset("apple-touch-icon.png", r);
+  }
   if (std::strcmp(p, "/favicon.ico") == 0) {
     r.status = 204;
     return;

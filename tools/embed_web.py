@@ -3,8 +3,9 @@
 
 Usage: embed_web.py OUT.cpp FILE...
 
-Each file is gzipped (deterministically: no timestamp) and served with
+Text files are gzipped (deterministically: no timestamp) and served with
 "Content-Encoding: gzip", so the Pico sends a few KB straight from flash.
+Images are already compressed and are stored as they are.
 """
 import gzip
 import os
@@ -14,7 +15,9 @@ TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
+    ".png": "image/png",
 }
+RAW = {".png"}  # stored without gzip
 
 
 def main() -> int:
@@ -33,12 +36,13 @@ def main() -> int:
         ext = os.path.splitext(name)[1]
         with open(path, "rb") as f:
             raw = f.read()
-        gz = gzip.compress(raw, compresslevel=9, mtime=0)
+        packed = ext not in RAW
+        gz = gzip.compress(raw, compresslevel=9, mtime=0) if packed else raw
         total_raw += len(raw)
         total_gz += len(gz)
         body = ",".join(str(b) for b in gz)
         lines.append(f"const unsigned char k{i}[] = {{{body}}};")
-        entries.append(f'  {{"{name}", "{TYPES.get(ext, "application/octet-stream")}", k{i}, {len(gz)}u}},')
+        entries.append(f'  {{"{name}", "{TYPES.get(ext, "application/octet-stream")}", k{i}, {len(gz)}u, {"true" if packed else "false"}}},')
     lines += [
         "}  // namespace",
         "",
