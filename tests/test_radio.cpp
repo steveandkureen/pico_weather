@@ -1,61 +1,71 @@
-// E220 LoRa driver (against a simulated module) and the packet framer.
+// DX-LR22 LoRa driver (against a simulated module) and the packet framer.
+#include <cstdio>
 #include <cstring>
 #include <deque>
+#include <map>
+#include <string>
 #include <vector>
 
 #include "test_util.h"
-#include "wx/e220.h"
+#include "wx/dxlr22.h"
 #include "wx/packet.h"
 #include "wx/packet_framer.h"
 
 namespace {
 
-// Simulated E220: answers config commands in mode 3, transmits in mode 0.
-class FakeModule : public wx::E220Port {
+// Simulated DX-LR22, modelled on a real one (firmware V1.2.4):
+//  * transparent mode at power-on; a burst of exactly "+++\r\n" enters AT mode
+//  * in AT mode, lines must end in exactly "\r\n"; "+++" leaves AT mode and
+//    restarts the module (AUX busy, then "Power on")
+//  * AUX high while booting or transmitting
+class FakeDx : public wx::RadioPort {
  public:
   bool powered = false;
-  bool m0 = false, m1 = false;
-  uint8_t regs[8] = {0x00, 0x00, 0x62, 0x00, 0x17, 0x03, 0, 0};  // factory defaults
-  bool responsive = true;   // false = hung module (never answers, AUX stuck low)
+  bool has_switch = true;   // false = no load switch fitted: set_power() does nothing
+  bool responsive = true;   // false = hung (never answers, AUX stuck busy)
+  bool hang_until_power_cycle = false;
   bool forget_writes = false;
+  bool at_mode = false;
   int boot_ms_left = 0;
   int busy_ms_left = 0;
+  int gap_ms = 0;
   int power_cycles = 0;
-  std::deque<uint8_t> rx;   // bytes the module sends to the Pico
+  std::map<std::string, int> settings = {{"MODE", 0},   {"SLEEP", 2},    {"SWITCH", 0}, {"LEVEL", 2},
+                                         {"CHANNEL", 0x41}, {"POWE", 22}, {"DRSSI", 0}};
+  std::deque<uint8_t> rx;  // bytes the module sends to the Pico
+  std::string in;          // bytes from the Pico not yet handled
   std::vector<uint8_t> sent_air;
+  std::vector<std::string> commands;
 
-  void set_mode_pins(bool a, bool b) override {
-    m0 = a;
-    m1 = b;
-  }
-  bool aux_high() override { return powered && responsive && boot_ms_left <= 0 && busy_ms_left <= 0; }
+  bool aux_busy() override { return !powered || !responsive || boot_ms_left > 0 || busy_ms_left > 0; }
   void set_power(bool on) override {
+    if (!has_switch) return;
     if (on && !powered) {
-      boot_ms_left = 100;
       ++power_cycles;
+      at_mode = false;
+      boot_ms_left = 300;
       if (hang_until_power_cycle) {
         responsive = true;
         hang_until_power_cycle = false;
       }
     }
     powered = on;
-    if (!on) rx.clear();
+    if (!on) {
+      rx.clear();
+      in.clear();
+    }
   }
   void write(const uint8_t* d, size_t n) override {
     if (!powered || !responsive) return;
-    if (m0 && m1) {
-      if (n == 3 && d[0] == 0xC1) {
-        reply();
-      } else if (n == 11 && d[0] == 0xC0) {
-        if (!forget_writes) std::memcpy(regs, d + 3, 8);
-        rx.push_back(0xC1);
-        rx.push_back(0x00);
-        rx.push_back(0x08);
-        for (int i = 0; i < 8; ++i) rx.push_back(d[3 + i]);
+    in.append(reinterpret_cast<const char*>(d), n);
+    gap_ms = 0;
+    if (at_mode) {
+      size_t pos;
+      while ((pos = in.find('\n')) != std::string::npos) {
+        std::string line = in.substr(0, pos + 1);
+        in.erase(0, pos + 1);
+        at_line(line);
       }
-    } else if (!m0 && !m1) {
-      sent_air.assign(d, d + n);
-      busy_ms_left = 300;
     }
   }
   int read_byte() override {
@@ -64,59 +74,86 @@ class FakeModule : public wx::E220Port {
     rx.pop_front();
     return b;
   }
+  void say(const std::string& s) {
+    for (char c : s) rx.push_back(static_cast<uint8_t>(c));
+    rx.push_back('\r');
+    rx.push_back('\n');
+  }
+  void at_line(const std::string& raw) {
+    if (raw.size() < 2 || raw[raw.size() - 2] != '\r') {
+      say("ERROR=104");  // the real module rejects anything but CR LF
+      return;
+    }
+    const std::string line = raw.substr(0, raw.size() - 2);
+    commands.push_back(line);
+    if (line == "+++") {
+      say("Exit AT");
+      at_mode = false;
+      boot_ms_left = 150;  // restarts; "Power on" when done
+      return;
+    }
+    if (line.compare(0, 3, "AT+") != 0) {
+      say("ERROR=104");
+      return;
+    }
+    for (auto& kv : settings) {
+      const std::string& name = kv.first;
+      if (line.compare(3, name.size(), name) != 0) continue;
+      const std::string arg = line.substr(3 + name.size());
+      const bool hex = name == "CHANNEL";
+      char buf[32];
+      if (arg.empty()) {
+        std::snprintf(buf, sizeof(buf), hex ? "+%s=%02x" : "+%s=%d", name.c_str(), kv.second);
+        say(buf);
+        return;
+      }
+      const int v = static_cast<int>(std::strtol(arg.c_str(), nullptr, hex ? 16 : 10));
+      if (!forget_writes) kv.second = v;
+      std::snprintf(buf, sizeof(buf), hex ? "+%s=%02x" : "+%s=%d", name.c_str(), v);
+      say(buf);
+      say("OK");
+      return;
+    }
+    say("ERROR=104");
+  }
   void tick() {
-    if (boot_ms_left > 0) --boot_ms_left;
+    if (boot_ms_left > 0 && --boot_ms_left == 0 && powered && responsive) say("Power on");
     if (busy_ms_left > 0) --busy_ms_left;
+    // Transparent mode: a burst ends after a short gap; "+++\r\n" alone = AT mode.
+    if (!at_mode && !in.empty() && ++gap_ms >= 3) {
+      if (in == "+++\r\n") {
+        at_mode = true;
+        say("Entry AT");
+      } else {
+        sent_air.assign(in.begin(), in.end());
+        busy_ms_left = 300;
+      }
+      in.clear();
+    }
   }
-  void reply() {
-    rx.push_back(0xC1);
-    rx.push_back(0x00);
-    rx.push_back(0x08);
-    for (int i = 0; i < 6; ++i) rx.push_back(regs[i]);
-    rx.push_back(0);
-    rx.push_back(0);
-  }
-  bool hang_until_power_cycle = false;
 };
 
-void run(wx::E220Radio& r, FakeModule& m, uint32_t& now, uint32_t ms) {
+void run(wx::Dxlr22Radio& r, FakeDx& m, uint32_t& now, uint32_t ms) {
   for (uint32_t i = 0; i < ms; ++i) {
     m.tick();
     r.poll(now++);
   }
 }
 
-void test_e220_regs() {
-  wx::E220Config c;
-  uint8_t regs[8];
-  c.to_regs(regs);
-  CHECK_EQ(regs[2], 0x62);  // 9600 8N1, 2.4k
-  CHECK_EQ(regs[3], 0x02);  // 13 dBm
-  CHECK_EQ(regs[4], 65);    // 915.125 MHz
-  CHECK_EQ(regs[5], 0x83);  // RSSI byte on, transparent, LBT off
-  uint8_t cmd[16];
-  CHECK_EQ(wx::e220_write_cmd(c, cmd), 11u);
-  CHECK_EQ(cmd[0], 0xC0);
-  CHECK_EQ(wx::e220_read_cmd(cmd), 3u);
-  CHECK_EQ(cmd[0], 0xC1);
-  CHECK(c.matches_regs(regs));
-  regs[4] = 23;
-  CHECK(!c.matches_regs(regs));
-}
-
-void test_e220_configures_factory_module() {
-  FakeModule m;
-  wx::E220Config cfg;
-  wx::E220Radio r(m, cfg);
+void test_dx_configures_factory_module() {
+  FakeDx m;
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
   uint32_t now = 0;
   r.start(now);
-  run(r, m, now, 2000);
+  run(r, m, now, 5000);
   CHECK(r.ready());
-  CHECK_EQ(r.stats().config_fixes, 1u);  // factory channel 0x17 was rewritten
-  CHECK_EQ(m.regs[4], 65);
-  CHECK(!m.m0 && !m.m1);  // back in normal mode
+  CHECK(!m.at_mode);                      // left AT mode again
+  CHECK_EQ(r.stats().configs, 1u);
+  CHECK_EQ(r.stats().config_fixes, 1u);   // only DRSSI differs from the factory settings
+  CHECK_EQ(m.settings["DRSSI"], 1);
+  CHECK_EQ(m.settings["CHANNEL"], 0x41);  // read back in hex, left alone
 
-  // Send a packet: AUX drops while transmitting, then it completes.
+  // Send a packet: AUX is high while it transmits, then it completes.
   uint8_t pkt[4] = {1, 2, 3, 4};
   CHECK(r.send(pkt, 4, now));
   CHECK(!r.send(pkt, 4, now));  // busy
@@ -126,76 +163,130 @@ void test_e220_configures_factory_module() {
   CHECK_EQ(m.sent_air.size(), 4u);
 }
 
-void test_e220_already_configured_needs_no_write() {
-  FakeModule m;
-  wx::E220Config cfg;
-  cfg.to_regs(m.regs);
-  wx::E220Radio r(m, cfg);
+void test_dx_writes_hex_channel_and_power() {
+  FakeDx m;
+  wx::Dxlr22Config cfg;
+  cfg.channel = 0x3A;
+  cfg.power_dbm = 13;
+  wx::Dxlr22Radio r(m, cfg);
   uint32_t now = 0;
   r.start(now);
-  run(r, m, now, 2000);
+  run(r, m, now, 5000);
+  CHECK(r.ready());
+  CHECK_EQ(m.settings["CHANNEL"], 0x3A);
+  CHECK_EQ(m.settings["POWE"], 13);
+  bool saw = false;
+  for (const auto& c : m.commands) saw = saw || c == "AT+CHANNEL3A";
+  CHECK(saw);
+}
+
+void test_dx_already_configured_needs_no_write() {
+  FakeDx m;
+  m.settings["DRSSI"] = 1;
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
+  uint32_t now = 0;
+  r.start(now);
+  run(r, m, now, 5000);
   CHECK(r.ready());
   CHECK_EQ(r.stats().config_fixes, 0u);
 }
 
-void test_e220_hung_module_is_power_cycled() {
-  FakeModule m;
-  wx::E220Config cfg;
-  wx::E220Radio r(m, cfg);
+void test_dx_left_in_at_mode() {
+  // No load switch, and the Pico restarted while the module was still in AT
+  // mode: the first "+++" takes it out instead, so the driver has to ask again.
+  FakeDx m;
+  m.powered = true;
+  m.has_switch = false;
+  m.at_mode = true;
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
   uint32_t now = 0;
   r.start(now);
-  run(r, m, now, 2000);
+  run(r, m, now, 8000);
+  CHECK(r.ready());
+  CHECK(!m.at_mode);
+  CHECK_EQ(r.stats().timeouts, 0u);
+}
+
+void test_dx_works_without_load_switch() {
+  FakeDx m;
+  m.powered = true;
+  m.has_switch = false;
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
+  uint32_t now = 0;
+  r.start(now);
+  run(r, m, now, 5000);
+  CHECK(r.ready());
+  CHECK_EQ(m.settings["DRSSI"], 1);
+}
+
+void test_dx_hung_module_is_power_cycled() {
+  FakeDx m;
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
+  uint32_t now = 0;
+  r.start(now);
+  run(r, m, now, 5000);
   CHECK(r.ready());
 
-  // Module hangs mid-transmit; only a power cycle fixes it.
-  m.responsive = false;
-  m.hang_until_power_cycle = true;
+  // Hangs mid-transmit; only a power cycle fixes it.
   uint8_t pkt[2] = {9, 9};
-  // aux is low now, so send refuses; simulate the hang during a transmit instead.
-  m.responsive = true;
   CHECK(r.send(pkt, 2, now));
   m.responsive = false;
+  m.hang_until_power_cycle = true;
   const int cycles_before = m.power_cycles;
-  run(r, m, now, 20000);
+  run(r, m, now, 30000);
   CHECK(m.power_cycles > cycles_before);
   CHECK(r.ready());
   CHECK(r.stats().timeouts >= 1u);
 }
 
-void test_e220_dead_module_rests_then_retries() {
-  FakeModule m;
+void test_dx_dead_module_rests_then_retries() {
+  FakeDx m;
   m.responsive = false;  // never answers at all
-  wx::E220Config cfg;
-  wx::E220Radio r(m, cfg);
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
   uint32_t now = 0;
   r.start(now);
-  run(r, m, now, 30000);
+  run(r, m, now, 60000);
   CHECK(r.dead());
   CHECK(!m.powered);  // left off while resting
-  // Later the module works again (e.g. loose wire reseated).
-  m.responsive = true;
-  run(r, m, now, 5 * 60 * 1000 + 5000);
+  m.responsive = true;  // e.g. loose wire reseated
+  run(r, m, now, 5 * 60 * 1000 + 10000);
   CHECK(r.ready());
 }
 
-void test_e220_settings_that_dont_stick() {
-  FakeModule m;
+void test_dx_settings_that_dont_stick() {
+  FakeDx m;
   m.forget_writes = true;
-  wx::E220Config cfg;
-  wx::E220Radio r(m, cfg);
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
   uint32_t now = 0;
   r.start(now);
   run(r, m, now, 60000);
   CHECK(!r.ready());  // never reports ready with wrong settings
 }
 
-void test_e220_receives_packets() {
-  FakeModule m;
-  wx::E220Config cfg;
-  wx::E220Radio r(m, cfg);
+void test_dx_verify_fixes_drift() {
+  FakeDx m;
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
   uint32_t now = 0;
   r.start(now);
-  run(r, m, now, 2000);
+  run(r, m, now, 5000);
+  CHECK(r.ready());
+  const uint32_t fixes = r.stats().config_fixes;
+  m.settings["LEVEL"] = 5;  // drifted
+  r.verify(now);
+  CHECK(!r.ready());
+  run(r, m, now, 5000);
+  CHECK(r.ready());
+  CHECK_EQ(m.settings["LEVEL"], 2);
+  CHECK_EQ(r.stats().config_fixes, fixes + 1);
+  CHECK_EQ(r.stats().configs, 1u);  // verify passes aren't counted as new configs
+}
+
+void test_dx_receives_packets() {
+  FakeDx m;
+  wx::Dxlr22Radio r(m, wx::Dxlr22Config{});
+  uint32_t now = 0;
+  r.start(now);
+  run(r, m, now, 5000);
   CHECK(r.ready());
 
   wx::OutdoorReading in;
@@ -204,7 +295,7 @@ void test_e220_receives_packets() {
   uint8_t buf[64];
   wx::encode(in, buf, sizeof(buf));
   for (size_t i = 0; i < wx::kPacketSize; ++i) m.rx.push_back(buf[i]);
-  m.rx.push_back(200);  // RSSI byte → -56 dBm
+  m.rx.push_back(0xAB);  // RSSI byte: -(255 - 171) = -84 dBm (vendor's example)
   run(r, m, now, 5);
   wx::OutdoorReading out;
   int16_t rssi = 0;
@@ -213,7 +304,7 @@ void test_e220_receives_packets() {
   CHECK(r.receive(now, &out, &rssi));
   CHECK_EQ(out.boot_id, 77);
   CHECK_EQ(out.rain_tips, 12u);
-  CHECK_EQ(rssi, -56);
+  CHECK_EQ(rssi, -84);
   CHECK(!r.receive(now, &out, &rssi));
 }
 
@@ -265,12 +356,15 @@ void test_framer_noise_and_split() {
 }  // namespace
 
 void run_radio_tests() {
-  test_e220_regs();
-  test_e220_configures_factory_module();
-  test_e220_already_configured_needs_no_write();
-  test_e220_hung_module_is_power_cycled();
-  test_e220_dead_module_rests_then_retries();
-  test_e220_settings_that_dont_stick();
-  test_e220_receives_packets();
+  test_dx_configures_factory_module();
+  test_dx_writes_hex_channel_and_power();
+  test_dx_already_configured_needs_no_write();
+  test_dx_left_in_at_mode();
+  test_dx_works_without_load_switch();
+  test_dx_hung_module_is_power_cycled();
+  test_dx_dead_module_rests_then_retries();
+  test_dx_settings_that_dont_stick();
+  test_dx_verify_fixes_drift();
+  test_dx_receives_packets();
   test_framer_noise_and_split();
 }

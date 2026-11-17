@@ -15,11 +15,11 @@
 #include "pico/rand.h"
 #include "pico/stdlib.h"
 #include "wx/bme280.h"
-#include "wx/e220.h"
+#include "wx/dxlr22.h"
 #include "wx/health.h"
 #include "wx/packet.h"
 #include "wx/wind.h"
-#include "wxp/pico_e220_port.h"
+#include "wxp/pico_radio_port.h"
 #include "wxp/pico_i2c_bus.h"
 
 namespace {
@@ -84,9 +84,9 @@ uint16_t adc_mv(uint16_t raw, float divider) {
 
 wxp::PicoI2cBus g_i2c(i2c0, board::kI2cSda, board::kI2cScl, board::kI2cHz);
 wx::Bme280 g_bme(g_i2c, board::kBme280Addr, kSensorIntervalMs);
-wxp::PicoE220Port g_radio_port({board::kLoraUart, board::kLoraBaud, board::kLoraTx, board::kLoraRx,
-                                board::kLoraM0, board::kLoraM1, board::kLoraAux, board::kLoraPowerEn});
-wx::E220Radio g_radio(g_radio_port, wx::E220Config{});
+wxp::PicoRadioPort g_radio_port({board::kLoraUart, board::kLoraBaud, board::kLoraTx, board::kLoraRx,
+                                 board::kLoraM0, board::kLoraM1, board::kLoraAux, board::kLoraPowerEn});
+wx::Dxlr22Radio g_radio(g_radio_port, wx::Dxlr22Config{});
 wx::WindSampler g_wind;
 wx::HealthMonitor g_health;
 
@@ -220,6 +220,11 @@ int main() {
                     static_cast<unsigned long>(r.rain_tips), r.wind_pulses, r.gust_pulses_3s,
                     r.wind_dir_raw_deg, r.temp_c_x100, r.humidity_x100,
                     static_cast<unsigned long>(r.pressure_pa), sent ? "sent" : "radio not ready");
+        if (!sent) {
+          char line[200];
+          g_radio.describe(line, sizeof(line));
+          std::printf("  %s\n", line);
+        }
         if (!b.valid) {
           // Sensor not answering: show what the bus looks like (scan takes ~0.25 s).
           uint8_t found[8];

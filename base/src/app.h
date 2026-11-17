@@ -7,12 +7,12 @@
 #include "net/http_server.h"
 #include "net/wifi_manager.h"
 #include "wx/bme280.h"
-#include "wx/e220.h"
+#include "wx/dxlr22.h"
 #include "wx/flash_store.h"
 #include "wx/health.h"
 #include "wx/settings.h"
 #include "wx/station.h"
-#include "wxp/pico_e220_port.h"
+#include "wxp/pico_radio_port.h"
 #include "wxp/pico_flash.h"
 #include "wxp/pico_i2c_bus.h"
 
@@ -61,8 +61,8 @@ class App : public HttpHandler {
   wx::Bme280 indoor_;
   uint32_t last_indoor_at_ = 0;
   uint32_t next_indoor_report_ = 0;
-  wxp::PicoE220Port radio_port_;
-  wx::E220Radio radio_;
+  wxp::PicoRadioPort radio_port_;
+  wx::Dxlr22Radio radio_;
   uint32_t last_packet_ms_ = 0;
   int radio_recovery_level_ = 0;
   uint32_t next_radio_recovery_ms_ = 0;

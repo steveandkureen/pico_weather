@@ -64,7 +64,7 @@ App::App()
       indoor_(i2c_, board::kBme280Addr, kIndoorIntervalMs),
       radio_port_({board::kLoraUart, board::kLoraBaud, board::kLoraTx, board::kLoraRx, board::kLoraM0,
                    board::kLoraM1, board::kLoraAux, board::kLoraPowerEn}),
-      radio_(radio_port_, wx::E220Config{}) {}
+      radio_(radio_port_, wx::Dxlr22Config{}) {}
 
 // ---------------------------------------------------------------- storage
 
@@ -424,6 +424,16 @@ void App::handle(const wx::HttpRequest& req, uint32_t local_ip, HttpResponse& r)
                            ",\"indoor\":{\"addr\":\"0x%02x\",\"chip\":\"0x%02x\",\"errors\":%lu,\"valid\":%s}",
                            indoor_.addr(), indoor_.chip_id(), (unsigned long)indoor_.errors(),
                            indoor_.reading().valid ? "true" : "false");
+      }
+      if (static_cast<size_t>(n) + 12 < r.dyn_cap) {
+        n += std::snprintf(r.dyn + n, r.dyn_cap - n, ",\"radio\":\"");
+        char line[200];
+        radio_.describe(line, sizeof(line));
+        for (const char* c = line; *c && static_cast<size_t>(n) + 3 < r.dyn_cap; ++c) {
+          if (*c == '"' || *c == '\\') r.dyn[n++] = '\\';
+          r.dyn[n++] = *c;
+        }
+        if (static_cast<size_t>(n) + 1 < r.dyn_cap) r.dyn[n++] = '"';
       }
       if (static_cast<size_t>(n) + 1 < r.dyn_cap) r.dyn[n++] = '}';
     }

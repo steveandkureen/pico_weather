@@ -27,3 +27,12 @@ target_link_libraries(wx_outdoor PRIVATE
 pico_enable_stdio_usb(wx_outdoor 1)
 pico_enable_stdio_uart(wx_outdoor 0)
 pico_add_extra_outputs(wx_outdoor)
+
+# Bench tool: USB serial <-> LoRa module UART passthrough (not station firmware).
+add_executable(wx_radio_bridge src/radio_bridge.cpp)
+target_include_directories(wx_radio_bridge PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src)
+target_compile_options(wx_radio_bridge PRIVATE -Wall -Wextra)
+target_link_libraries(wx_radio_bridge PRIVATE pico_stdlib hardware_uart)
+pico_enable_stdio_usb(wx_radio_bridge 1)
+pico_enable_stdio_uart(wx_radio_bridge 0)
+pico_add_extra_outputs(wx_radio_bridge)

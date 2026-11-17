@@ -9,14 +9,14 @@
 
 namespace board {
 
-// --- LoRa module (Ebyte E220-style LLCC68, UART) ---------------------------
+// --- LoRa module (DX-SMART DX-LR22-900T22D, LLCC68, UART + AT commands) ----
 constexpr unsigned kLoraUart = 1;      // uart1
 constexpr uint32_t kLoraBaud = 9600;
 constexpr unsigned kLoraTx = 8;        // GP8  -> module RXD
 constexpr unsigned kLoraRx = 9;        // GP9  <- module TXD
-constexpr unsigned kLoraM0 = 10;       // GP10 -> M0
-constexpr unsigned kLoraM1 = 11;       // GP11 -> M1
-constexpr unsigned kLoraAux = 12;      // GP12 <- AUX
+constexpr unsigned kLoraM0 = 10;       // GP10 -> M0 (held low)
+constexpr unsigned kLoraM1 = 11;       // GP11 -> M1 (held low)
+constexpr unsigned kLoraAux = 12;      // GP12 <- AUX (high = busy, low = idle)
 constexpr unsigned kLoraPowerEn = 13;  // GP13 -> load switch / MOSFET, high = module powered
 
 // --- I2C sensors -------------------------------------------------------------

@@ -1,4 +1,4 @@
-#include "wxp/pico_e220_port.h"
+#include "wxp/pico_radio_port.h"
 
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
@@ -31,7 +31,7 @@ void on_uart_rx() {
 
 }  // namespace
 
-void PicoE220Port::init() {
+void PicoRadioPort::init() {
   uart_ = pins_.uart_index == 0 ? uart0 : uart1;
   g_uart = uart_;
 
@@ -40,16 +40,20 @@ void PicoE220Port::init() {
   gpio_put(pins_.power_en, false);
   gpio_set_dir(pins_.power_en, GPIO_OUT);
 
+  // M0/M1 held low. With the module's default AT+SWITCH=0 it drives them low
+  // itself, so this matches; if SWITCH were ever 1, low/low selects the normal
+  // always-listening mode. (Never drive them high: that fights the module's
+  // outputs, and with SWITCH=1 high/high is a sleep the UART can't wake.)
   gpio_init(pins_.m0);
   gpio_init(pins_.m1);
+  gpio_put(pins_.m0, false);
+  gpio_put(pins_.m1, false);
   gpio_set_dir(pins_.m0, GPIO_OUT);
   gpio_set_dir(pins_.m1, GPIO_OUT);
-  gpio_put(pins_.m0, true);
-  gpio_put(pins_.m1, true);
 
   gpio_init(pins_.aux);
   gpio_set_dir(pins_.aux, GPIO_IN);
-  gpio_pull_down(pins_.aux);  // reads "busy" if the module is unplugged
+  gpio_pull_up(pins_.aux);  // AUX high = busy, so an unplugged module reads "busy"
 
   uart_init(uart_, pins_.baud);
   uart_set_format(uart_, 8, 1, UART_PARITY_NONE);
@@ -65,14 +69,9 @@ void PicoE220Port::init() {
   uart_set_irq_enables(uart_, true, false);
 }
 
-void PicoE220Port::set_mode_pins(bool m0, bool m1) {
-  gpio_put(pins_.m0, m0);
-  gpio_put(pins_.m1, m1);
-}
+bool PicoRadioPort::aux_busy() { return gpio_get(pins_.aux); }
 
-bool PicoE220Port::aux_high() { return gpio_get(pins_.aux); }
-
-void PicoE220Port::set_power(bool on) {
+void PicoRadioPort::set_power(bool on) {
   if (!on) {
     // Don't back-power the module through the UART TX pin while it's off.
     gpio_set_function(pins_.tx, GPIO_FUNC_SIO);
@@ -82,8 +81,8 @@ void PicoE220Port::set_power(bool on) {
   if (on) gpio_set_function(pins_.tx, GPIO_FUNC_UART);
 }
 
-void PicoE220Port::write(const uint8_t* data, size_t n) {
-  // At most ~41 bytes; the 32-byte TX FIFO drains at ~1 ms/byte, so this
+void PicoRadioPort::write(const uint8_t* data, size_t n) {
+  // At most ~36 bytes; the 32-byte TX FIFO drains at ~1 ms/byte, so this
   // waits at most ~10 ms. Bounded, no loop on an external condition.
   for (size_t i = 0; i < n; ++i) {
     absolute_time_t until = make_timeout_time_ms(50);
@@ -94,7 +93,7 @@ void PicoE220Port::write(const uint8_t* data, size_t n) {
   }
 }
 
-int PicoE220Port::read_byte() {
+int PicoRadioPort::read_byte() {
   const uint32_t tail = g_tail;
   if (tail == g_head) return -1;
   const uint8_t b = g_ring[tail & (kRingSize - 1)];
@@ -102,6 +101,6 @@ int PicoE220Port::read_byte() {
   return b;
 }
 
-uint32_t PicoE220Port::rx_overflows() const { return g_overflows; }
+uint32_t PicoRadioPort::rx_overflows() const { return g_overflows; }
 
 }  // namespace wxp

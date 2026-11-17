@@ -31,8 +31,9 @@ bool PacketFramer::poll(uint32_t now_ms, OutdoorReading* out, int16_t* rssi_dbm)
     if (buf_[off] != kPacketMagic) continue;
     if (decode(buf_ + off, kPacketSize, out)) {
       const size_t after = off + kPacketSize;
-      // One trailing byte = RSSI appended by the module: dBm = -(256 - value).
-      *rssi_dbm = (after + 1 == n) ? static_cast<int16_t>(-(256 - buf_[after])) : 0;
+      // One trailing byte = RSSI appended by the module (AT+DRSSI1). DX-LR22
+      // application guide: dBm = -(0xFF - value), e.g. 0xAB = -84 dBm.
+      *rssi_dbm = (after + 1 == n) ? static_cast<int16_t>(-(255 - buf_[after])) : 0;
       return true;
     }
   }

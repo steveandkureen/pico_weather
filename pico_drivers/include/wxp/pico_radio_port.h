@@ -1,26 +1,25 @@
-// E220Port on a Pico: UART with an interrupt-driven receive ring buffer, plus
-// the M0/M1/AUX pins and the module's power switch.
+// RadioPort on a Pico: UART with an interrupt-driven receive ring buffer, plus
+// the module's AUX, M0/M1 and power-switch pins.
 #pragma once
 
 #include "hardware/uart.h"
-#include "wx/e220.h"
+#include "wx/dxlr22.h"
 
 namespace wxp {
 
-struct E220Pins {
+struct RadioPins {
   unsigned uart_index;  // 0 or 1
   uint32_t baud;
   unsigned tx, rx, m0, m1, aux, power_en;
 };
 
-class PicoE220Port : public wx::E220Port {
+class PicoRadioPort : public wx::RadioPort {
  public:
-  explicit PicoE220Port(const E220Pins& pins) : pins_(pins) {}
+  explicit PicoRadioPort(const RadioPins& pins) : pins_(pins) {}
 
   void init();
 
-  void set_mode_pins(bool m0, bool m1) override;
-  bool aux_high() override;
+  bool aux_busy() override;
   void set_power(bool on) override;
   void write(const uint8_t* data, size_t n) override;
   int read_byte() override;
@@ -28,7 +27,7 @@ class PicoE220Port : public wx::E220Port {
   uint32_t rx_overflows() const;
 
  private:
-  E220Pins pins_;
+  RadioPins pins_;
   uart_inst_t* uart_ = nullptr;
 };
 

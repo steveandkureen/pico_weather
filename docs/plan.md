@@ -76,11 +76,11 @@ main():
 |---|---|---|---|
 | 2 · Base core (flash, NTP, web, setup mode, forecast, mDNS) | ✅ | logic ✅ (flash store with power cuts, settings, TZ/DST, forecast parser on a real reply, JSON, problems); pages ✅ in a desktop browser | ⬜ |
 | 3 · Indoor BME280 | ✅ | ✅ (driver against a simulated sensor, incl. unplug/replug) | ⬜ |
-| 4 · LoRa link (E220 UART) | ✅ | ✅ (driver against a simulated module: factory config, hangs, power cycles) | ⬜ (modules in shipping) |
+| 4 · LoRa link (DX-LR22, UART + AT commands) | ✅ | ✅ (driver against a simulated module: factory config, left in AT mode, hangs, power cycles) | 🔶 outdoor module configures and sends (2026-11-16); base not wired yet |
 | 5 · Outdoor sensors | ✅ | wind/rain math ✅ | ⬜ |
 
 **Things to check first on hardware:**
-- **E220 register values and timings:** written from the manual. Verify the config read-back on first power-up (the USB log prints it).
+- **Radio is a DX-SMART DX-LR22-900T22D, not an Ebyte E220.** AT commands after `+++`, lines must end in exactly CR LF, AUX high = busy, M0/M1 are module outputs by default (held low by the Pico). Vendor docs: DX-SMART/LoRaModule on GitHub, "DX-LR21&22-900Mhz" archive, application guide. Bench tool: `wx_radio_bridge` (USB ↔ module UART).
 - **The ~1.7 kB Open-Meteo reply and the forecast request:** confirmed from this PC over raw HTTP/1.0. On the Pico, check that DNS + TCP work through the home network.
 - **Setup mode captive page on an iPhone:** the redirect logic is in place; confirm the sheet pops up.
 - **The iPad 4's real Safari:** the pages were checked in a desktop browser and scanned for ES5-only syntax, but not on iOS 10 itself.
@@ -99,7 +99,7 @@ Proposed parts list (✅ = confirmed, 🔶 = proposed, waiting for your OK):
 | Wind speed + rain pulses | **HiLetgo A3144 Hall switch** module, magnet on rotor / bucket. ⚠️ Rated 4.5–24 V: power it from 5 V with an open-collector pull-up to 3.3 V, or swap to TI DRV5032 (3.3 V) | DRV5032 / DRV5023 | ✅ (power TBD) |
 | Wind direction | **WWZMDiB AS5600** magnetic encoder, 3.3 V (I2C 0x36). Use its analog OUT on an ADC pin if the wire to the Pico is long | — | ✅ |
 | Anemometer / vane / rain gauge mechanics | DIY (Hall + magnet, AS5600 + magnet) | — | ⬜ describe |
-| LoRa radio (×2) | **Semtech LLCC68 UART module, 868/915 MHz** (model TBD, likely Ebyte E220-900T22D). Module runs its own firmware; the Pico talks to it over UART, using the AUX/M0/M1 pins | — | ✅ (model TBD) |
+| LoRa radio (×2) | **DX-SMART DX-LR22-900T22D** (Semtech LLCC68, 915 MHz). Module runs its own firmware; the Pico configures it with AT commands over UART and watches AUX | — | ✅ |
 | LoRa power control | GPIO-switched MOSFET on the module's supply, so the Pico can power-cycle a stuck module | — | 🔶 |
 | Indoor temp/humidity/pressure | **Qoroos BME280** (same driver as outdoor) | — | ✅ |
 | Housings (shield, anemometer, vane, rain gauge, electronics box) | **3D-printed by you.** See Step 6b | — | ⬜ to design |

@@ -1,6 +1,6 @@
 # Pico SDK drivers shared by both firmwares (I2C, flash, LoRa UART port).
 add_library(wx_pico_drivers STATIC
-  ${CMAKE_CURRENT_LIST_DIR}/src/pico_e220_port.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/src/pico_radio_port.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/pico_flash.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/pico_i2c_bus.cpp
 )
