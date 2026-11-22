@@ -76,7 +76,7 @@ main():
 |---|---|---|---|
 | 2 · Base core (flash, NTP, web, setup mode, forecast, mDNS) | ✅ | logic ✅ (flash store with power cuts, settings, TZ/DST, forecast parser on a real reply, JSON, problems); pages ✅ in a desktop browser | ⬜ |
 | 3 · Indoor BME280 | ✅ | ✅ (driver against a simulated sensor, incl. unplug/replug) | ⬜ |
-| 4 · LoRa link (DX-LR22, UART + AT commands) | ✅ | ✅ (driver against a simulated module: factory config, left in AT mode, hangs, power cycles) | 🔶 outdoor module configures and sends (2026-11-16); base not wired yet |
+| 4 · LoRa link (DX-LR22, UART + AT commands) | ✅ | ✅ (driver against a simulated module: factory config, left in AT mode, hangs, power cycles) | ✅ outdoor sends, base receives (2026-11-16) |
 | 5 · Outdoor sensors | ✅ | wind/rain math ✅ | ⬜ |
 
 **Things to check first on hardware:**
@@ -128,21 +128,23 @@ In code: [`outdoor/src/board.h`](../outdoor/src/board.h) and [`base/src/board.h`
 |---|---|---|---|---|
 | LoRa UART TX | GP8 (UART1 TX) | 11 | module RXD | |
 | LoRa UART RX | GP9 (UART1 RX) | 12 | module TXD | |
-| LoRa M0 | GP10 | 14 | module M0 | mode select |
-| LoRa M1 | GP11 | 15 | module M1 | mode select |
-| LoRa AUX | GP12 | 16 | module AUX | busy flag (input) |
-| LoRa power enable | GP13 | 17 | load switch EN | high = radio on; lets firmware power-cycle a stuck module |
+| LoRa M0 | GP10 | 14 | module M0 | held low (the module drives M0/M1 itself by default, AT+SWITCH=0) |
+| LoRa M1 | GP11 | 15 | module M1 | held low |
+| LoRa AUX | GP12 | 16 | module AUX | input: high = busy, low = idle |
+| LoRa power enable | GP13 | 17 | load switch EN | not fitted yet; high = radio on; lets firmware power-cycle a stuck module |
+| LoRa VCC | VSYS / VBUS | 39 / 40 | module VCC | 3.3–5.5 V, 5 V typical: 183 mA bursts while sending, so **not** from 3V3 OUT. Bench: VBUS (pin 40). Solar: VSYS (pin 39). 100 µF + 0.1 µF across VCC/GND at the module. Signal pins stay 3.3 V |
+| LoRa GND | GND | any GND | module GND | |
 | I2C SDA | GP4 (I2C0) | 6 | BME280 SDA | 50 kHz, twisted pair to the shield |
 | I2C SCL | GP5 (I2C0) | 7 | BME280 SCL | |
 | Anemometer | GP14 | 19 | Hall sensor OUT | 10k pull-up to 3V3 + 1 nF to GND at the Pico |
 | Rain gauge | GP15 | 20 | Hall sensor OUT | 10k pull-up to 3V3 + 1 nF to GND; debounced in software |
-| Wind vane | GP26 (ADC0) | 31 | AS5600 OUT | analog 0–3.3 V = 0–360°; AS5600 DIR → GND |
+| Wind vane | GP26 (ADC0) | 31 | AS5600 OUT | analog 0–3.3 V = 0–360°; jumper AS5600 DIR to its GND pin (never leave DIR floating) |
 | Battery voltage | GP27 (ADC1) | 32 | battery + via 100k/100k divider | ~18 µA drain; fine for solar |
 | Solar voltage | GP28 (ADC2) | 34 | panel + via 220k/47k divider | shows whether it's charging |
 | Pico supply | GP29 (ADC3) | internal | VSYS/3 on the Pico board | nothing to wire |
 | Status LED | GP25 | on-board | | brief blink on send for the first 10 min after boot only |
 | Running LED | GP16 | 21 | 330 Ω → LED → GND (pin 23) | 1 s on, 2 s off from the main loop; stops if the firmware hangs |
-| 3.3 V out | 3V3 OUT | 36 | BME280, AS5600, Hall sensors, load switch → LoRa | 300 mA max; peak LoRa TX ~110 mA |
+| 3.3 V out | 3V3 OUT | 36 | BME280, AS5600, Hall pull-ups | 300 mA max; the radio is no longer on this rail |
 | Ground | GND | 38 (any GND) | all | |
 | Power in | VSYS | 39 | solar charge controller load output | Pico's onboard regulator accepts 1.8–5.5 V |
 
@@ -153,6 +155,7 @@ In code: [`outdoor/src/board.h`](../outdoor/src/board.h) and [`base/src/board.h`
 | LoRa UART TX / RX | GP8 / GP9 (UART1) | 11 / 12 | module RXD / TXD | same as outdoor |
 | LoRa M0 / M1 / AUX | GP10 / GP11 / GP12 | 14 / 15 / 16 | module | same as outdoor |
 | LoRa power enable | GP13 | 17 | load switch EN | same as outdoor |
+| LoRa VCC / GND | VBUS / GND | 40 / any GND | module VCC / GND | 5 V from USB; 100 µF + 0.1 µF at the module |
 | I2C SDA / SCL | GP4 / GP5 (I2C0) | 6 / 7 | BME280 | 100 kHz, short wires |
 | Setup / reset button | GP15 | 20 | push button to GND | short press: setup WiFi; hold 10 s: wipe settings (not rain history) |
 | **Reserved** | GP23, GP24, GP25, GP29 | — | WiFi chip | never use on the Pico 2 W |
@@ -169,7 +172,8 @@ In code: [`outdoor/src/board.h`](../outdoor/src/board.h) and [`base/src/board.h`
   - The A3144 still needs 4.5 V+. A 3.3 V-rated replacement must sample continuously (or at ≥1 kHz) for the anemometer. Low-power "duty-cycled" Hall sensors like some DRV5032 versions sample at only 5–20 Hz and would miss pulses in high wind. A **reed switch** is a zero-power option for the rain gauge, where tips are slow.
 - **External 10k pull-ups and a 1 nF capacitor** on the pulse inputs: the internal pull-ups are weak (~50k), and long sensor wires outdoors pick up noise that would read as false rain tips. 10k × 1 nF = 10 µs, far faster than the fastest anemometer pulse (~50 Hz at 100+ mph).
 - **The wind vane uses the analog output** so the vane wire can be long; I2C wouldn't tolerate it.
-- **Load-switch parts:** a TPS22918 (or an AO3401 P-MOSFET driven by a 2N7002) on the LoRa module's 3.3 V supply. Pin 13 low = module off.
+- **Load-switch parts:** an AO3401 P-MOSFET (driven by a 2N7002) or a TPS22918-class switch rated for 5.5 V, on the LoRa module's 5 V / VSYS supply. Pin 13 low = module off.
+- **Radio power (DX-LR22 technical manual):** VCC 3.3–5.5 V (5 V typical, needed for full output), 183 mA while transmitting, 3 mA listening. Its signal pins run from an internal 3.3 V, so they're safe on the Pico at any VCC.
 - The **ADC pins are all used outdoors** (vane, battery, solar, VSYS). Anything else analog would need an external ADC on the I2C bus.
 
 ---
